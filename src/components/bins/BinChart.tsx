@@ -6,6 +6,21 @@ import type { BinData } from '@/hooks/useBinRange'
 import { formatBinPrice } from '@/lib/binMath'
 import { formatWei } from '@/lib/formatters'
 
+/** SVG path with rounded top corners and flat bottom */
+function roundedTopRect(bx: number, by: number, w: number, h: number, r: number): string {
+  if (h <= 0 || w <= 0) return `M${bx},${by} Z`
+  const radius = Math.min(r, w / 2, h)
+  return [
+    `M${bx},${by + h}`,
+    `V${by + radius}`,
+    `Q${bx},${by} ${bx + radius},${by}`,
+    `H${bx + w - radius}`,
+    `Q${bx + w},${by} ${bx + w},${by + radius}`,
+    `V${by + h}`,
+    'Z',
+  ].join(' ')
+}
+
 export function BinChart({
   bins,
   activeId,
@@ -31,6 +46,9 @@ export function BinChart({
     const innerH = height - margin.top - margin.bottom
 
     svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const styles = getComputedStyle(document.documentElement)
+    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#f59e0b'
 
     const g = svg
       .append('g')
@@ -60,7 +78,7 @@ export function BinChart({
           .tickValues(tickValues)
           .tickFormat((d) => formatBinPrice(d as number, binStep, 4)),
       )
-      .attr('color', '#55556a')
+      .attr('color', '#3d6e48')
       .selectAll('text')
       .attr('font-size', '10px')
       .attr('transform', 'rotate(-35)')
@@ -69,37 +87,38 @@ export function BinChart({
     // Y axis
     g.append('g')
       .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.2s')))
-      .attr('color', '#55556a')
+      .attr('color', '#3d6e48')
       .selectAll('text')
       .attr('font-size', '10px')
+
+    const bw = x.bandwidth()
 
     // Bars — reserve Y (bottom, green)
     g.selectAll('.bar-y')
       .data(bins)
       .enter()
-      .append('rect')
+      .append('path')
       .attr('class', 'bar-y')
-      .attr('x', (d) => x(d.binId)!)
-      .attr('y', (d) => y(Number(d.reserveY)))
-      .attr('width', x.bandwidth())
-      .attr('height', (d) => innerH - y(Number(d.reserveY)))
-      .attr('fill', (d) => (d.binId === activeId ? '#f59e0b' : '#22c55e'))
+      .attr('d', (d) => {
+        const h = innerH - y(Number(d.reserveY))
+        return roundedTopRect(x(d.binId)!, y(Number(d.reserveY)), bw, h, 3)
+      })
+      .attr('fill', (d) => (d.binId === activeId ? activeBinColor : '#139A43'))
       .attr('opacity', 0.8)
-      .attr('rx', 1)
 
-    // Bars — reserve X (stacked on top, blue)
+    // Bars — reserve X (stacked on top)
     g.selectAll('.bar-x')
       .data(bins)
       .enter()
-      .append('rect')
+      .append('path')
       .attr('class', 'bar-x')
-      .attr('x', (d) => x(d.binId)!)
-      .attr('y', (d) => y(Number(d.reserveX + d.reserveY)))
-      .attr('width', x.bandwidth())
-      .attr('height', (d) => y(Number(d.reserveY)) - y(Number(d.reserveX + d.reserveY)))
-      .attr('fill', (d) => (d.binId === activeId ? '#fbbf24' : '#3b82f6'))
+      .attr('d', (d) => {
+        const by = y(Number(d.reserveX + d.reserveY))
+        const h = y(Number(d.reserveY)) - by
+        return roundedTopRect(x(d.binId)!, by, bw, h, 3)
+      })
+      .attr('fill', (d) => (d.binId === activeId ? activeBinColor : '#0DAB76'))
       .attr('opacity', 0.8)
-      .attr('rx', 1)
 
     // Active bin marker
     const activeBin = bins.find((b) => b.binId === activeId)
@@ -109,10 +128,10 @@ export function BinChart({
         .attr('x2', x(activeId)! + x.bandwidth() / 2)
         .attr('y1', 0)
         .attr('y2', innerH)
-        .attr('stroke', '#f59e0b')
-        .attr('stroke-width', 1)
+        .attr('stroke', activeBinColor)
+        .attr('stroke-width', 4)
         .attr('stroke-dasharray', '4,3')
-        .attr('opacity', 0.5)
+        .attr('opacity', 0.7)
     }
 
     // Tooltip

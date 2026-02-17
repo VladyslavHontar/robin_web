@@ -44,6 +44,8 @@ export type Distribution = {
   distributionY: bigint[]
 }
 
+export type DistShape = 'linear' | 'exponential'
+
 const PRECISION = 10n ** 18n
 
 export type RequiredTokens = 'both' | 'onlyX' | 'onlyY'
@@ -114,16 +116,45 @@ export function generateUniformDistribution(
 }
 
 /**
- * Normal (bell curve) distribution: weight = 100 / (1 + distance²).
- * Higher concentration around active bin.
+ * Curve distribution: concentrated around active bin. Requires ≥ 3 bins.
  */
-export function generateNormalDistribution(
+export function generateCurveDistribution(
   activeBinId: number,
-  binRange: number,
+  startBin: number,
+  endBin: number,
+  shape: DistShape = 'exponential',
+  intensity = 1.0,
 ): Distribution {
-  const startBin = activeBinId - binRange
-  const endBin = activeBinId + binRange
+  const maxDist = Math.max(activeBinId - startBin, endBin - activeBinId, 1)
+  const weightFn = shape === 'linear'
+    ? (d: number) => maxDist + 1 - Math.abs(d)
+    : (d: number) => Math.exp(-Math.abs(d) * intensity)
+  return buildWeightedDistribution(activeBinId, startBin, endBin, weightFn)
+}
 
+/**
+ * Bid-Ask distribution: most liquidity on edges, least at center. Requires ≥ 3 bins.
+ */
+export function generateBidAskDistribution(
+  activeBinId: number,
+  startBin: number,
+  endBin: number,
+  shape: DistShape = 'exponential',
+  intensity = 1.0,
+): Distribution {
+  const weightFn = shape === 'linear'
+    ? (d: number) => Math.abs(d) + 1
+    : (d: number) => Math.exp(Math.abs(d) * intensity * 0.5)
+  return buildWeightedDistribution(activeBinId, startBin, endBin, weightFn)
+}
+
+/** Shared helper for weighted distributions (curve, bid-ask). */
+function buildWeightedDistribution(
+  activeBinId: number,
+  startBin: number,
+  endBin: number,
+  weightFn: (distance: number) => number,
+): Distribution {
   const binIds: number[] = []
   const rawWeights: number[] = []
 
@@ -132,7 +163,7 @@ export function generateNormalDistribution(
 
   for (let id = startBin; id <= endBin; id++) {
     const distance = id - activeBinId
-    const weight = 100 / (1 + distance * distance)
+    const weight = weightFn(distance)
     binIds.push(id)
     rawWeights.push(weight)
 
@@ -160,15 +191,4 @@ export function generateNormalDistribution(
   }
 
   return { binIds, distributionX, distributionY }
-}
-
-/**
- * Spot distribution: all liquidity into a single bin.
- */
-export function generateSpotDistribution(binId: number): Distribution {
-  return {
-    binIds: [binId],
-    distributionX: [PRECISION],
-    distributionY: [PRECISION],
-  }
 }
