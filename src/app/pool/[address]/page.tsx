@@ -13,6 +13,7 @@ import { BinTable } from '@/components/bins/BinTable'
 import { OraclePanel } from '@/components/oracle/OraclePanel'
 import { FeeParametersPanel } from '@/components/pool/FeeParameters'
 import { Skeleton } from '@/components/shared/Skeleton'
+import { AddLiquidityPanel } from '@/components/liquidity/AddLiquidityPanel'
 
 export default function PoolDetailPage({
   params,
@@ -78,6 +79,13 @@ export default function PoolDetailPage({
         />
         <FeeParametersPanel feeParams={pairState.feeParameters} />
       </div>
+
+      <AddLiquidityPanel
+        pairState={pairState}
+        tokenXSymbol={tokenX?.symbol ?? '??'}
+        tokenYSymbol={tokenY?.symbol ?? '??'}
+        bins={bins}
+      />
 
       <BinTable
         bins={bins}
