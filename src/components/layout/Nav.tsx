@@ -1,4 +1,7 @@
+'use client'
+
 import Link from 'next/link'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
 
 export function Nav() {
   return (
@@ -14,6 +17,7 @@ export function Nav() {
               <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
               Testnet
             </span>
+            <ConnectButton showBalance={false} chainStatus="icon" accountStatus="avatar" />
           </div>
         </div>
       </div>
