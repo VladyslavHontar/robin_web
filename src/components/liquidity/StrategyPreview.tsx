@@ -4,6 +4,7 @@ import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import * as d3 from 'd3'
 import type { Distribution } from '@/lib/binMath'
 import { formatBinPrice } from '@/lib/binMath'
+import { formatWei } from '@/lib/formatters'
 import type { BinData } from '@/hooks/useBinRange'
 
 type StrategyPreviewProps = {
@@ -17,17 +18,40 @@ type StrategyPreviewProps = {
   endBin: number
   onRangeChange: (startBin: number, endBin: number) => void
   editable: boolean
+  tokenXSymbol: string
+  tokenYSymbol: string
 }
 
 const PRECISION = 10n ** 18n
 const DEFAULT_PADDING = 5
 const MAX_EXTRA_PADDING = 40
+const BAR_RADIUS = 3
+const MIN_BAR_PX = 3
 
 type Candle = {
   binId: number
+  existingX: number
+  existingY: number
+  addedX: number
+  addedY: number
   existing: number
   added: number
   isAdding: boolean
+}
+
+/** SVG path with rounded top corners and flat bottom */
+function roundedTopRect(bx: number, by: number, w: number, h: number, r: number): string {
+  if (h <= 0 || w <= 0) return `M${bx},${by} Z`
+  const radius = Math.min(r, w / 2, h)
+  return [
+    `M${bx},${by + h}`,
+    `V${by + radius}`,
+    `Q${bx},${by} ${bx + radius},${by}`,
+    `H${bx + w - radius}`,
+    `Q${bx + w},${by} ${bx + w},${by + radius}`,
+    `V${by + h}`,
+    'Z',
+  ].join(' ')
 }
 
 export function StrategyPreview({
@@ -41,6 +65,8 @@ export function StrategyPreview({
   endBin,
   onRangeChange,
   editable,
+  tokenXSymbol,
+  tokenYSymbol,
 }: StrategyPreviewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [extraPadding, setExtraPadding] = useState(DEFAULT_PADDING)
@@ -76,14 +102,20 @@ export function StrategyPreview({
     const result: Candle[] = []
     for (let id = viewMin; id <= viewMax; id++) {
       const reserves = reserveMap.get(id)
-      const existing = reserves ? Number(reserves.reserveX) + Number(reserves.reserveY) : 0
+      const exX = reserves ? Number(reserves.reserveX) : 0
+      const exY = reserves ? Number(reserves.reserveY) : 0
       const add = addAmountMap.get(id)
-      const added = add ? Number(add.addX) + Number(add.addY) : 0
+      const adX = add ? Number(add.addX) : 0
+      const adY = add ? Number(add.addY) : 0
 
       result.push({
         binId: id,
-        existing,
-        added,
+        existingX: exX,
+        existingY: exY,
+        addedX: adX,
+        addedY: adY,
+        existing: exX + exY,
+        added: adX + adY,
         isAdding: addingSet.has(id),
       })
     }
@@ -118,7 +150,6 @@ export function StrategyPreview({
   const xScaleRef = useRef<d3.ScaleBand<number> | null>(null)
   // Track drag state locally so we don't re-render mid-gesture
   const draggingRef = useRef<{ side: 'left' | 'right'; currentBin: number } | null>(null)
-  const innerHRef = useRef(0)
 
   // Find nearest bin ID from pixel x position
   const findNearestBin = useCallback((mouseX: number): number | null => {
@@ -148,12 +179,15 @@ export function StrategyPreview({
 
     const container = svgRef.current.parentElement
     const width = container?.clientWidth ?? 500
-    const height = 200
+    const height = container?.clientHeight ? Math.max(container.clientHeight, 200) : 200
     const margin = { top: 8, right: 8, bottom: 64, left: 8 }
     const innerW = width - margin.left - margin.right
     const innerH = height - margin.top - margin.bottom
 
     svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const styles = getComputedStyle(document.documentElement)
+    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#f59e0b'
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -174,7 +208,7 @@ export function StrategyPreview({
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
       .call(d3.axisBottom(x).tickFormat((d) => formatBinPrice(d as number, binStep, 4)))
-      .attr('color', '#55556a')
+      .attr('color', '#3d6e48')
       .selectAll('text')
       .attr('font-size', '8px')
       .attr('transform', 'rotate(-55)')
@@ -187,73 +221,161 @@ export function StrategyPreview({
     const lastX = x(endBin)
     if (firstX !== undefined && lastX !== undefined) {
       g.append('rect')
+        .attr('class', 'range-shading')
         .attr('x', firstX)
         .attr('y', 0)
         .attr('width', lastX + x.bandwidth() - firstX)
         .attr('height', innerH)
-        .attr('fill', '#6366f1')
+        .attr('fill', '#0DAB76')
         .attr('opacity', 0.06)
     }
 
-    const MIN_BAR_PX = 3
+    const bw = x.bandwidth()
 
-    // Existing liquidity bars
-    g.selectAll('.bar-existing')
-      .data(candles)
-      .enter()
-      .append('rect')
-      .attr('class', 'bar-existing')
-      .attr('x', (d) => x(d.binId)!)
-      .attr('y', (d) => {
-        const h = innerH - y(d.existing)
-        return h > MIN_BAR_PX ? y(d.existing) : innerH - MIN_BAR_PX
-      })
-      .attr('width', x.bandwidth())
-      .attr('height', (d) => {
-        const h = innerH - y(d.existing)
-        return Math.max(h, MIN_BAR_PX)
-      })
-      .attr('fill', '#2a2a3a')
-      .attr('opacity', (d) => (d.existing > 0 ? 0.7 : 0.25))
-      .attr('rx', 1)
+    const COLOR_EXISTING_Y = '#0B5D1E'
+    const COLOR_EXISTING_X = '#0a2912'
+    const COLOR_ADDED_Y = '#139A43'
+    const COLOR_ADDED_X = '#0DAB76'
+    const COLOR_DESELECTED = '#040f07'
 
-    // Added liquidity bars
-    g.selectAll('.bar-added')
-      .data(candles.filter((c) => c.added > 0))
+    // Layer 1: Existing Y (bottom)
+    g.selectAll('.bar-existing-y')
+      .data(candles, (d) => String((d as Candle).binId))
       .enter()
-      .append('rect')
-      .attr('class', 'bar-added')
-      .attr('x', (d) => x(d.binId)!)
-      .attr('y', (d) => y(d.existing + d.added))
-      .attr('width', x.bandwidth())
-      .attr('height', (d) => Math.max(0, y(d.existing) - y(d.existing + d.added)))
-      .attr('fill', '#6366f1')
+      .append('path')
+      .attr('class', 'bar-existing-y')
+      .attr('d', (d) => {
+        const total = d.existing
+        if (total <= 0) {
+          const h = MIN_BAR_PX
+          return roundedTopRect(x(d.binId)!, innerH - h, bw, h, BAR_RADIUS)
+        }
+        const h = innerH - y(d.existingY)
+        return roundedTopRect(x(d.binId)!, y(d.existingY), bw, h, BAR_RADIUS)
+      })
+      .attr('fill', COLOR_EXISTING_Y)
+      .attr('opacity', (d) => (d.existing > 0 ? 0.8 : 0.25))
+
+    // Layer 2: Existing X (stacked on Y)
+    g.selectAll('.bar-existing-x')
+      .data(candles.filter((c) => c.existingX > 0), (d) => String((d as Candle).binId))
+      .enter()
+      .append('path')
+      .attr('class', 'bar-existing-x')
+      .attr('d', (d) => {
+        const by = y(d.existing)
+        const h = y(d.existingY) - by
+        return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+      })
+      .attr('fill', COLOR_EXISTING_X)
+      .attr('opacity', 0.8)
+
+    // Layer 3: Added Y (stacked on existing)
+    g.selectAll('.bar-added-y')
+      .data(candles.filter((c) => c.addedY > 0), (d) => String((d as Candle).binId))
+      .enter()
+      .append('path')
+      .attr('class', 'bar-added-y')
+      .attr('d', (d) => {
+        const baseTop = y(d.existing)
+        const addedYH = baseTop - y(d.existing + d.addedY)
+        return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+      })
+      .attr('fill', COLOR_ADDED_Y)
       .attr('opacity', 0.9)
-      .attr('rx', 1)
+
+    // Layer 4: Added X (stacked on added Y)
+    g.selectAll('.bar-added-x')
+      .data(candles.filter((c) => c.addedX > 0), (d) => String((d as Candle).binId))
+      .enter()
+      .append('path')
+      .attr('class', 'bar-added-x')
+      .attr('d', (d) => {
+        const by = y(d.existing + d.added)
+        const topOfAddedY = y(d.existing + d.addedY)
+        const h = topOfAddedY - by
+        return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+      })
+      .attr('fill', COLOR_ADDED_X)
+      .attr('opacity', 0.9)
 
     // Active bin marker
     if (x(activeBinId) !== undefined) {
       g.append('line')
-        .attr('x1', x(activeBinId)! + x.bandwidth() / 2)
-        .attr('x2', x(activeBinId)! + x.bandwidth() / 2)
+        .attr('x1', x(activeBinId)! + bw / 2)
+        .attr('x2', x(activeBinId)! + bw / 2)
         .attr('y1', 0)
         .attr('y2', innerH)
-        .attr('stroke', '#f59e0b')
-        .attr('stroke-width', 1)
+        .attr('stroke', activeBinColor)
+        .attr('stroke-width', 3)
         .attr('stroke-dasharray', '3,2')
-        .attr('opacity', 0.6)
+        .attr('opacity', 0.8)
     }
+
+    // Invisible hit areas + tooltip
+    const tooltip = d3
+      .select(svgRef.current.parentElement!)
+      .append('div')
+      .attr('class', 'absolute pointer-events-none bg-surface-overlay border border-border rounded-lg px-3 py-2 text-xs hidden')
+      .style('z-index', '20')
+
+    g.selectAll('.bar-hitarea')
+      .data(candles, (d) => String((d as Candle).binId))
+      .enter()
+      .append('rect')
+      .attr('class', 'bar-hitarea')
+      .attr('x', (d) => x(d.binId)!)
+      .attr('y', 0)
+      .attr('width', bw)
+      .attr('height', innerH)
+      .attr('fill', 'transparent')
+      .on('mouseover', function (_event, d) {
+        const totalX = d.existingX + d.addedX
+        const totalY = d.existingY + d.addedY
+        const pctX = totalX > 0 ? ((d.addedX / totalX) * 100).toFixed(1) : '0.0'
+        const pctY = totalY > 0 ? ((d.addedY / totalY) * 100).toFixed(1) : '0.0'
+
+        const lines: string[] = [
+          `<div class="text-text-muted mb-1">Bin ${d.binId} ${d.binId === activeBinId ? `<span style="color:${activeBinColor}">Active</span>` : ''}</div>`,
+          `<div class="text-text-secondary">Price: ${formatBinPrice(d.binId, binStep)}</div>`,
+        ]
+
+        const showX = d.existingX > 0 || d.addedX > 0 || d.binId >= activeBinId
+        const showY = d.existingY > 0 || d.addedY > 0 || d.binId <= activeBinId
+
+        if (showX) {
+          lines.push(`<div class="mt-1" style="color:${COLOR_ADDED_X}">${tokenXSymbol}: ${formatWei(BigInt(d.existingX))}${d.addedX > 0 ? ` <span class="text-text-primary">+ ${formatWei(BigInt(d.addedX))}</span>` : ''}</div>`)
+          if (d.addedX > 0) lines.push(`<div class="text-text-muted text-[10px]">Your ${tokenXSymbol}: ${pctX}%</div>`)
+        }
+        if (showY) {
+          lines.push(`<div class="mt-1" style="color:${COLOR_ADDED_Y}">${tokenYSymbol}: ${formatWei(BigInt(d.existingY))}${d.addedY > 0 ? ` <span class="text-text-primary">+ ${formatWei(BigInt(d.addedY))}</span>` : ''}</div>`)
+          if (d.addedY > 0) lines.push(`<div class="text-text-muted text-[10px]">Your ${tokenYSymbol}: ${pctY}%</div>`)
+        }
+
+        if (d.existing === 0 && d.added === 0) {
+          lines.push('<div class="text-text-muted mt-1">Empty bin</div>')
+        }
+
+        tooltip.classed('hidden', false).html(`<div class="font-mono">${lines.join('')}</div>`)
+      })
+      .on('mousemove', function (event) {
+        const containerRect = svgRef.current!.parentElement!.getBoundingClientRect()
+        tooltip
+          .style('left', `${event.clientX - containerRect.left + 12}px`)
+          .style('top', `${event.clientY - containerRect.top - 10}px`)
+      })
+      .on('mouseout', function () {
+        tooltip.classed('hidden', true)
+      })
 
     // Draggable boundary handles (only when editable)
     if (editable) {
-      const handleColor = '#818cf8'
-      innerHRef.current = innerH
+      const handleColor = '#139A43'
 
       // Helper to position a handle group at a given xPos
       function positionHandle(
         handle: d3.Selection<SVGGElement, unknown, null, undefined>,
         xPos: number,
-        side: 'left' | 'right',
       ) {
         const triSize = 6
         handle.select('line')
@@ -271,13 +393,12 @@ export function StrategyPreview({
       ) {
         const xPos = side === 'left'
           ? (x(binId) ?? 0)
-          : (x(binId) ?? 0) + x.bandwidth()
+          : (x(binId) ?? 0) + bw
 
         const handle = g.append('g')
           .attr('class', `handle-${side}`)
           .style('cursor', 'ew-resize')
 
-        // Vertical line
         handle.append('line')
           .attr('x1', xPos)
           .attr('x2', xPos)
@@ -286,13 +407,11 @@ export function StrategyPreview({
           .attr('stroke', handleColor)
           .attr('stroke-width', 2)
 
-        // Grab triangle at top
         const triSize = 6
         handle.append('path')
           .attr('d', `M${xPos},0 L${xPos - triSize},-${triSize} L${xPos + triSize},-${triSize} Z`)
           .attr('fill', handleColor)
 
-        // Invisible wider hit area for easier dragging
         handle.append('rect')
           .attr('x', xPos - 12)
           .attr('y', -triSize)
@@ -306,31 +425,31 @@ export function StrategyPreview({
       const leftHandle = drawHandle(startBin, 'left')
       const rightHandle = drawHandle(endBin, 'right')
 
-      // Shading rect reference for live updates
-      const shadingRect = g.select<SVGRectElement>('rect[fill="#6366f1"][opacity="0.06"]')
+      const shadingRect = g.select<SVGRectElement>('.range-shading')
 
       // Live-update bars to reflect the dragged range
       function updateBarsForRange(newStart: number, newEnd: number) {
-        // Update shading
         const sFirstX = x(newStart)
         const sLastX = x(newEnd)
         if (sFirstX !== undefined && sLastX !== undefined) {
           shadingRect
             .attr('x', sFirstX)
-            .attr('width', sLastX + x.bandwidth() - sFirstX)
+            .attr('width', sLastX + bw - sFirstX)
         }
 
-        // Grey out / restore existing bars
-        g.selectAll<SVGRectElement, Candle>('.bar-existing')
-          .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? '#2a2a3a' : '#1a1a24')
+        g.selectAll<SVGPathElement, Candle>('.bar-existing-y')
+          .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_Y : COLOR_DESELECTED)
           .attr('opacity', (d) => {
             const inRange = d.binId >= newStart && d.binId <= newEnd
             if (!inRange) return 0.15
-            return d.existing > 0 ? 0.7 : 0.25
+            return d.existing > 0 ? 0.8 : 0.25
           })
 
-        // Show/hide added bars
-        g.selectAll<SVGRectElement, Candle>('.bar-added')
+        g.selectAll<SVGPathElement, Candle>('.bar-existing-x')
+          .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_X : COLOR_DESELECTED)
+          .attr('opacity', (d) => (d.binId >= newStart && d.binId <= newEnd) ? 0.8 : 0.15)
+
+        g.selectAll<SVGPathElement, Candle>('.bar-added-y, .bar-added-x')
           .attr('opacity', (d) => (d.binId >= newStart && d.binId <= newEnd) ? 0.9 : 0)
       }
 
@@ -343,7 +462,7 @@ export function StrategyPreview({
           const nearest = findNearestBin(event.x)
           if (nearest === null || nearest > endBin) return
           draggingRef.current = { side: 'left', currentBin: nearest }
-          positionHandle(leftHandle, x(nearest) ?? 0, 'left')
+          positionHandle(leftHandle, x(nearest) ?? 0)
           updateBarsForRange(nearest, endBin)
         })
         .on('end', () => {
@@ -360,7 +479,7 @@ export function StrategyPreview({
           const nearest = findNearestBin(event.x)
           if (nearest === null || nearest < startBin) return
           draggingRef.current = { side: 'right', currentBin: nearest }
-          positionHandle(rightHandle, (x(nearest) ?? 0) + x.bandwidth(), 'right')
+          positionHandle(rightHandle, (x(nearest) ?? 0) + bw)
           updateBarsForRange(startBin, nearest)
         })
         .on('end', () => {
@@ -372,20 +491,28 @@ export function StrategyPreview({
       leftHandle.call(dragLeft as never)
       rightHandle.call(dragRight as never)
     }
-  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange])
+
+    return () => {
+      tooltip.remove()
+    }
+  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange, tokenXSymbol, tokenYSymbol])
 
   if (candles.length === 0) return null
 
   const totalBins = endBin - startBin + 1
 
   return (
-    <div className="rounded-lg border border-border bg-surface-overlay p-3">
-      <div className="flex items-center justify-between mb-1">
+    <div className="rounded-lg border border-border bg-surface-overlay p-3 h-full flex flex-col">
+      <div className="flex items-center justify-between mb-1 shrink-0">
         <span className="text-xs text-text-muted">Liquidity Preview</span>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 text-[10px] text-text-muted">
-            <span className="inline-block w-2 h-2 rounded-sm bg-[#2a2a3a]" />
-            Existing
+            <span className="inline-block w-2 h-2 rounded-sm bg-[#0a2912]" />
+            {tokenXSymbol}
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-text-muted">
+            <span className="inline-block w-2 h-2 rounded-sm bg-[#0B5D1E]" />
+            {tokenYSymbol}
           </span>
           <span className="flex items-center gap-1 text-[10px] text-text-muted">
             <span className="inline-block w-2 h-2 rounded-sm bg-accent" />
@@ -393,8 +520,8 @@ export function StrategyPreview({
           </span>
         </div>
       </div>
-      <div className="relative cursor-ns-resize">
-        <svg ref={svgRef} className="w-full" preserveAspectRatio="xMidYMid meet" />
+      <div className="relative cursor-ns-resize flex-1 min-h-0">
+        <svg ref={svgRef} className="w-full h-full" preserveAspectRatio="xMidYMid meet" />
         {extraPadding > 0 && (
           <div className="absolute top-1 right-1 text-[10px] text-text-muted bg-surface-overlay/80 px-1.5 py-0.5 rounded">
             {candles.length} bins shown
@@ -402,50 +529,48 @@ export function StrategyPreview({
         )}
       </div>
 
-      {/* Range controls below the chart */}
-      {editable && (
-        <div className="flex items-center justify-between mt-2">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onRangeChange(startBin - 1, endBin)}
-              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
-            >
-              -
-            </button>
-            <div className="text-xs font-mono text-text-secondary px-1">
-              <span className="text-text-muted">Min </span>
-              {formatBinPrice(startBin, binStep, 4)}
-            </div>
-            <button
-              onClick={() => { if (startBin < endBin) onRangeChange(startBin + 1, endBin) }}
-              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
-            >
-              +
-            </button>
+      {/* Range controls below the chart — always rendered for stable layout */}
+      <div className={`flex items-center justify-between mt-2 shrink-0 ${editable ? '' : 'invisible'}`}>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onRangeChange(startBin - 1, endBin)}
+            className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+          >
+            -
+          </button>
+          <div className="text-xs font-mono text-text-secondary px-1">
+            <span className="text-text-muted">Min </span>
+            {formatBinPrice(startBin, binStep, 4)}
           </div>
-
-          <span className="text-[10px] text-text-muted">{totalBins} bins</span>
-
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => { if (endBin > startBin) onRangeChange(startBin, endBin - 1) }}
-              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
-            >
-              -
-            </button>
-            <div className="text-xs font-mono text-text-secondary px-1">
-              <span className="text-text-muted">Max </span>
-              {formatBinPrice(endBin, binStep, 4)}
-            </div>
-            <button
-              onClick={() => onRangeChange(startBin, endBin + 1)}
-              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
-            >
-              +
-            </button>
-          </div>
+          <button
+            onClick={() => { if (startBin < endBin) onRangeChange(startBin + 1, endBin) }}
+            className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+          >
+            +
+          </button>
         </div>
-      )}
+
+        <span className="text-[10px] text-text-muted">{totalBins} bins</span>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => { if (endBin > startBin) onRangeChange(startBin, endBin - 1) }}
+            className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+          >
+            -
+          </button>
+          <div className="text-xs font-mono text-text-secondary px-1">
+            <span className="text-text-muted">Max </span>
+            {formatBinPrice(endBin, binStep, 4)}
+          </div>
+          <button
+            onClick={() => onRangeChange(startBin, endBin + 1)}
+            className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+          >
+            +
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
