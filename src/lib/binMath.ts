@@ -46,38 +46,67 @@ export type Distribution = {
 
 const PRECISION = 10n ** 18n
 
+export type RequiredTokens = 'both' | 'onlyX' | 'onlyY'
+
+/**
+ * Determine which tokens are needed for a given bin range.
+ */
+export function getRequiredTokens(
+  activeBinId: number,
+  startBin: number,
+  endBin: number,
+): RequiredTokens {
+  if (startBin <= activeBinId && endBin >= activeBinId) return 'both'
+  if (endBin < activeBinId) return 'onlyY'
+  return 'onlyX'
+}
+
+/**
+ * Check if range is symmetric around activeBinId (can use router shortcut).
+ */
+export function isSymmetricRange(
+  activeBinId: number,
+  startBin: number,
+  endBin: number,
+): boolean {
+  return (activeBinId - startBin) === (endBin - activeBinId)
+}
+
 /**
  * Uniform distribution: equal liquidity across all bins in range.
- * Mirrors LBRouter._generateUniformDistribution logic.
+ * Supports asymmetric ranges (startBin/endBin independent of activeBinId).
  */
 export function generateUniformDistribution(
   activeBinId: number,
-  binRange: number,
+  startBin: number,
+  endBin: number,
 ): Distribution {
-  const startBin = activeBinId - binRange
-  const endBin = activeBinId + binRange
-  const totalBins = endBin - startBin + 1
-
   const binIds: number[] = []
   const distributionX: bigint[] = []
   const distributionY: bigint[] = []
 
-  const sharePerBin = PRECISION / BigInt(totalBins)
+  // Count bins that receive each token
+  let binsWithX = 0
+  let binsWithY = 0
+  for (let id = startBin; id <= endBin; id++) {
+    if (id >= activeBinId) binsWithX++
+    if (id <= activeBinId) binsWithY++
+  }
+
+  const sharePerBinX = binsWithX > 0 ? PRECISION / BigInt(binsWithX) : 0n
+  const sharePerBinY = binsWithY > 0 ? PRECISION / BigInt(binsWithY) : 0n
 
   for (let id = startBin; id <= endBin; id++) {
     binIds.push(id)
     if (id < activeBinId) {
-      // Below active: only token Y
       distributionX.push(0n)
-      distributionY.push(sharePerBin)
+      distributionY.push(sharePerBinY)
     } else if (id > activeBinId) {
-      // Above active: only token X
-      distributionX.push(sharePerBin)
+      distributionX.push(sharePerBinX)
       distributionY.push(0n)
     } else {
-      // Active bin: both tokens
-      distributionX.push(sharePerBin)
-      distributionY.push(sharePerBin)
+      distributionX.push(sharePerBinX)
+      distributionY.push(sharePerBinY)
     }
   }
 

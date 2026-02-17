@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { parseEther, type Address } from 'viem'
 import { TokenInput } from './TokenInput'
@@ -13,6 +13,8 @@ import {
   generateUniformDistribution,
   generateNormalDistribution,
   generateSpotDistribution,
+  getRequiredTokens,
+  isSymmetricRange,
 } from '@/lib/binMath'
 import type { PairState } from '@/hooks/usePairState'
 import type { BinData } from '@/hooks/useBinRange'
@@ -35,15 +37,27 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
   const [strategy, setStrategy] = useState<Strategy>('uniform')
   const [amountX, setAmountX] = useState('')
   const [amountY, setAmountY] = useState('')
-  const [binRange, setBinRange] = useState(5)
+  const [startBin, setStartBin] = useState(pairState.activeId - 5)
+  const [endBin, setEndBin] = useState(pairState.activeId + 5)
   const [spotBinId, setSpotBinId] = useState(pairState.activeId)
 
   const contracts = getContracts(robinhoodTestnet.id)
 
-  // For uniform/spot, spender is the router. For normal, spender is the pair directly.
-  const spender = strategy === 'normal'
-    ? pairState.address
-    : (contracts.router as Address)
+  const requiredTokens = useMemo(
+    () => getRequiredTokens(pairState.activeId, startBin, endBin),
+    [pairState.activeId, startBin, endBin],
+  )
+
+  // For uniform: symmetric → router, asymmetric → pair. For normal: pair. For spot: router.
+  const spender = useMemo(() => {
+    if (strategy === 'uniform') {
+      return isSymmetricRange(pairState.activeId, startBin, endBin)
+        ? (contracts.router as Address)
+        : pairState.address
+    }
+    if (strategy === 'normal') return pairState.address
+    return contracts.router as Address
+  }, [strategy, pairState.activeId, pairState.address, startBin, endBin, contracts.router])
 
   const approvalX = useTokenApproval(pairState.tokenX, spender)
   const approvalY = useTokenApproval(pairState.tokenY, spender)
@@ -57,14 +71,33 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
     try { return amountY ? parseEther(amountY) : 0n } catch { return 0n }
   }, [amountY])
 
-  const distribution = useMemo(() => {
-    if (strategy === 'uniform') return generateUniformDistribution(pairState.activeId, binRange)
-    if (strategy === 'normal') return generateNormalDistribution(pairState.activeId, binRange)
-    return generateSpotDistribution(spotBinId)
-  }, [strategy, pairState.activeId, binRange, spotBinId])
+  // Clear hidden token amounts when range changes
+  useEffect(() => {
+    if (strategy !== 'uniform') return
+    if (requiredTokens === 'onlyX' && amountY !== '') setAmountY('')
+    if (requiredTokens === 'onlyY' && amountX !== '') setAmountX('')
+  }, [requiredTokens, strategy, amountX, amountY])
 
-  const needsApproveX = parsedAmountX > 0n && approvalX.needsApproval(parsedAmountX)
-  const needsApproveY = parsedAmountY > 0n && approvalY.needsApproval(parsedAmountY)
+  const handleRangeChange = useCallback((newStart: number, newEnd: number) => {
+    const clampedStart = Math.max(0, newStart)
+    const clampedEnd = Math.min(16_777_215, newEnd)
+    if (clampedStart <= clampedEnd) {
+      setStartBin(clampedStart)
+      setEndBin(clampedEnd)
+    }
+  }, [])
+
+  const distribution = useMemo(() => {
+    if (strategy === 'uniform') return generateUniformDistribution(pairState.activeId, startBin, endBin)
+    if (strategy === 'normal') return generateNormalDistribution(pairState.activeId, endBin - pairState.activeId)
+    return generateSpotDistribution(spotBinId)
+  }, [strategy, pairState.activeId, startBin, endBin, spotBinId])
+
+  const showTokenX = strategy !== 'uniform' || requiredTokens === 'both' || requiredTokens === 'onlyX'
+  const showTokenY = strategy !== 'uniform' || requiredTokens === 'both' || requiredTokens === 'onlyY'
+
+  const needsApproveX = showTokenX && parsedAmountX > 0n && approvalX.needsApproval(parsedAmountX)
+  const needsApproveY = showTokenY && parsedAmountY > 0n && approvalY.needsApproval(parsedAmountY)
   const canSubmit = (parsedAmountX > 0n || parsedAmountY > 0n) && !needsApproveX && !needsApproveY
 
   if (!isConnected) {
@@ -86,7 +119,8 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
       amountX: parsedAmountX,
       amountY: parsedAmountY,
       strategy,
-      binRange,
+      startBin,
+      endBin,
       spotBinId,
     })
   }
@@ -116,26 +150,8 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
         {strategies.find((s) => s.key === strategy)?.desc}
       </p>
 
-      {/* Bin Range / Spot Bin */}
-      {strategy !== 'spot' ? (
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-text-muted">Bin Range</span>
-            <span className="text-xs font-mono text-text-secondary">
-              {pairState.activeId - binRange}–{pairState.activeId + binRange}{' '}
-              <span className="text-text-muted">({binRange * 2 + 1} bins)</span>
-            </span>
-          </div>
-          <input
-            type="range"
-            min={1}
-            max={50}
-            value={binRange}
-            onChange={(e) => setBinRange(Number(e.target.value))}
-            className="w-full accent-accent"
-          />
-        </div>
-      ) : (
+      {/* Spot Bin selector (only for spot strategy) */}
+      {strategy === 'spot' && (
         <div className="mb-3">
           <label className="text-xs text-text-muted block mb-1">Bin ID</label>
           <input
@@ -150,7 +166,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
         </div>
       )}
 
-      {/* Distribution Preview */}
+      {/* Distribution Preview with integrated range controls */}
       <div className="mb-3">
         <StrategyPreview
           distribution={distribution}
@@ -159,25 +175,40 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
           bins={bins}
           amountX={parsedAmountX}
           amountY={parsedAmountY}
+          startBin={startBin}
+          endBin={endBin}
+          onRangeChange={handleRangeChange}
+          editable={strategy === 'uniform'}
         />
       </div>
 
-      {/* Token Inputs */}
+      {/* Token Inputs — smart visibility based on range */}
       <div className="space-y-2 mb-4">
-        <TokenInput
-          label={`${tokenXSymbol} Amount`}
-          symbol={tokenXSymbol}
-          tokenAddress={pairState.tokenX}
-          value={amountX}
-          onChange={setAmountX}
-        />
-        <TokenInput
-          label={`${tokenYSymbol} Amount`}
-          symbol={tokenYSymbol}
-          tokenAddress={pairState.tokenY}
-          value={amountY}
-          onChange={setAmountY}
-        />
+        {showTokenX && (
+          <TokenInput
+            label={`${tokenXSymbol} Amount`}
+            symbol={tokenXSymbol}
+            tokenAddress={pairState.tokenX}
+            value={amountX}
+            onChange={setAmountX}
+          />
+        )}
+        {showTokenY && (
+          <TokenInput
+            label={`${tokenYSymbol} Amount`}
+            symbol={tokenYSymbol}
+            tokenAddress={pairState.tokenY}
+            value={amountY}
+            onChange={setAmountY}
+          />
+        )}
+        {strategy === 'uniform' && requiredTokens !== 'both' && (
+          <p className="text-[10px] text-text-muted">
+            {requiredTokens === 'onlyX'
+              ? `Range is above active bin — only ${tokenXSymbol} needed`
+              : `Range is below active bin — only ${tokenYSymbol} needed`}
+          </p>
+        )}
       </div>
 
       {/* Approve Buttons */}

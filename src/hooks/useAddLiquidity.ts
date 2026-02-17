@@ -8,7 +8,7 @@ import { getContracts } from '@/config/contracts'
 import {
   generateUniformDistribution,
   generateNormalDistribution,
-  generateSpotDistribution,
+  isSymmetricRange,
 } from '@/lib/binMath'
 import type { Address } from 'viem'
 
@@ -23,8 +23,9 @@ type AddLiquidityParams = {
   amountX: bigint
   amountY: bigint
   strategy: Strategy
-  binRange: number // for uniform/normal
-  spotBinId?: number // for spot strategy
+  startBin: number
+  endBin: number
+  spotBinId?: number
 }
 
 export function useAddLiquidity() {
@@ -38,27 +39,55 @@ export function useAddLiquidity() {
   function addLiquidity(params: AddLiquidityParams) {
     if (!account) return
 
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600) // 10 min
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600)
     const contracts = getContracts(robinhoodTestnet.id)
 
     if (params.strategy === 'uniform') {
-      writeContract({
-        address: contracts.router as Address,
-        abi: lbRouterAbi,
-        functionName: 'addLiquidityUniform',
-        args: [
-          params.tokenX,
-          params.tokenY,
-          params.binStep,
-          params.amountX,
-          params.amountY,
-          params.activeBinId,
-          params.binRange,
-          account,
-          deadline,
-        ],
-        chainId: robinhoodTestnet.id,
-      })
+      const symmetric = isSymmetricRange(params.activeBinId, params.startBin, params.endBin)
+
+      if (symmetric) {
+        // Symmetric: use router's efficient addLiquidityUniform
+        const binRange = params.endBin - params.activeBinId
+        writeContract({
+          address: contracts.router as Address,
+          abi: lbRouterAbi,
+          functionName: 'addLiquidityUniform',
+          args: [
+            params.tokenX,
+            params.tokenY,
+            params.binStep,
+            params.amountX,
+            params.amountY,
+            params.activeBinId,
+            binRange,
+            account,
+            deadline,
+          ],
+          chainId: robinhoodTestnet.id,
+        })
+      } else {
+        // Asymmetric: call LBPair.mint() directly
+        const dist = generateUniformDistribution(params.activeBinId, params.startBin, params.endBin)
+        writeContract({
+          address: params.pairAddress,
+          abi: lbPairAbi,
+          functionName: 'mint',
+          args: [
+            {
+              binIds: dist.binIds,
+              distributionX: dist.distributionX,
+              distributionY: dist.distributionY,
+              amountX: params.amountX,
+              amountY: params.amountY,
+              activeIdDesired: params.activeBinId,
+              idSlippage: 5,
+              deadline,
+              to: account,
+            },
+          ],
+          chainId: robinhoodTestnet.id,
+        })
+      }
     } else if (params.strategy === 'spot') {
       const binId = params.spotBinId ?? params.activeBinId
       writeContract({
@@ -78,21 +107,21 @@ export function useAddLiquidity() {
         chainId: robinhoodTestnet.id,
       })
     } else {
-      // Normal distribution: call LBPair.mint() directly with computed distributions
-      const dist = generateNormalDistribution(params.activeBinId, params.binRange)
+      // Normal: call LBPair.mint() directly with bell curve distribution
+      const dist = generateNormalDistribution(params.activeBinId, params.endBin - params.activeBinId)
       writeContract({
         address: params.pairAddress,
         abi: lbPairAbi,
         functionName: 'mint',
         args: [
           {
-            binIds: dist.binIds.map((id) => id),
-            distributionX: dist.distributionX.map((d) => d),
-            distributionY: dist.distributionY.map((d) => d),
+            binIds: dist.binIds,
+            distributionX: dist.distributionX,
+            distributionY: dist.distributionY,
             amountX: params.amountX,
             amountY: params.amountY,
             activeIdDesired: params.activeBinId,
-            idSlippage: 5, // allow 5 bins of slippage
+            idSlippage: 5,
             deadline,
             to: account,
           },
