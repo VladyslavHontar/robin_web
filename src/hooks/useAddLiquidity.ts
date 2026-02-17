@@ -7,12 +7,14 @@ import { robinhoodTestnet } from '@/config/chains'
 import { getContracts } from '@/config/contracts'
 import {
   generateUniformDistribution,
-  generateNormalDistribution,
+  generateCurveDistribution,
+  generateBidAskDistribution,
   isSymmetricRange,
 } from '@/lib/binMath'
+import type { DistShape } from '@/lib/binMath'
 import type { Address } from 'viem'
 
-export type Strategy = 'uniform' | 'normal' | 'spot'
+export type Strategy = 'spot' | 'curve' | 'bidask'
 
 type AddLiquidityParams = {
   pairAddress: Address
@@ -23,9 +25,10 @@ type AddLiquidityParams = {
   amountX: bigint
   amountY: bigint
   strategy: Strategy
+  shape: DistShape
+  intensity: number
   startBin: number
   endBin: number
-  spotBinId?: number
 }
 
 export function useAddLiquidity() {
@@ -42,11 +45,11 @@ export function useAddLiquidity() {
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 600)
     const contracts = getContracts(robinhoodTestnet.id)
 
-    if (params.strategy === 'uniform') {
+    if (params.strategy === 'spot') {
+      // Spot (uniform): equal across all bins
       const symmetric = isSymmetricRange(params.activeBinId, params.startBin, params.endBin)
 
       if (symmetric) {
-        // Symmetric: use router's efficient addLiquidityUniform
         const binRange = params.endBin - params.activeBinId
         writeContract({
           address: contracts.router as Address,
@@ -66,51 +69,26 @@ export function useAddLiquidity() {
           chainId: robinhoodTestnet.id,
         })
       } else {
-        // Asymmetric: call LBPair.mint() directly
         const dist = generateUniformDistribution(params.activeBinId, params.startBin, params.endBin)
-        writeContract({
-          address: params.pairAddress,
-          abi: lbPairAbi,
-          functionName: 'mint',
-          args: [
-            {
-              binIds: dist.binIds,
-              distributionX: dist.distributionX,
-              distributionY: dist.distributionY,
-              amountX: params.amountX,
-              amountY: params.amountY,
-              activeIdDesired: params.activeBinId,
-              idSlippage: 5,
-              deadline,
-              to: account,
-            },
-          ],
-          chainId: robinhoodTestnet.id,
-        })
+        mintDirect(params, dist, deadline)
       }
-    } else if (params.strategy === 'spot') {
-      const binId = params.spotBinId ?? params.activeBinId
-      writeContract({
-        address: contracts.router as Address,
-        abi: lbRouterAbi,
-        functionName: 'addLiquiditySpot',
-        args: [
-          params.tokenX,
-          params.tokenY,
-          params.binStep,
-          params.amountX,
-          params.amountY,
-          binId,
-          account,
-          deadline,
-        ],
-        chainId: robinhoodTestnet.id,
-      })
+    } else if (params.strategy === 'curve') {
+      // Curve (bell curve): most liquidity at center
+      const dist = generateCurveDistribution(params.activeBinId, params.startBin, params.endBin, params.shape, params.intensity)
+      mintDirect(params, dist, deadline)
     } else {
-      // Normal: call LBPair.mint() directly with bell curve distribution
-      const dist = generateNormalDistribution(params.activeBinId, params.endBin - params.activeBinId)
+      // Bid-Ask (inverse curve): most liquidity on edges
+      const dist = generateBidAskDistribution(params.activeBinId, params.startBin, params.endBin, params.shape, params.intensity)
+      mintDirect(params, dist, deadline)
+    }
+
+    function mintDirect(
+      p: AddLiquidityParams,
+      dist: { binIds: number[]; distributionX: bigint[]; distributionY: bigint[] },
+      dl: bigint,
+    ) {
       writeContract({
-        address: params.pairAddress,
+        address: p.pairAddress,
         abi: lbPairAbi,
         functionName: 'mint',
         args: [
@@ -118,12 +96,12 @@ export function useAddLiquidity() {
             binIds: dist.binIds,
             distributionX: dist.distributionX,
             distributionY: dist.distributionY,
-            amountX: params.amountX,
-            amountY: params.amountY,
-            activeIdDesired: params.activeBinId,
+            amountX: p.amountX,
+            amountY: p.amountY,
+            activeIdDesired: p.activeBinId,
             idSlippage: 5,
-            deadline,
-            to: account,
+            deadline: dl,
+            to: account!,
           },
         ],
         chainId: robinhoodTestnet.id,
