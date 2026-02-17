@@ -13,11 +13,15 @@ type StrategyPreviewProps = {
   bins: BinData[]
   amountX: bigint
   amountY: bigint
+  startBin: number
+  endBin: number
+  onRangeChange: (startBin: number, endBin: number) => void
+  editable: boolean
 }
 
 const PRECISION = 10n ** 18n
-const DEFAULT_PADDING = 5 // extra bins shown on each side by default
-const MAX_EXTRA_PADDING = 40 // max extra bins you can zoom out to
+const DEFAULT_PADDING = 5
+const MAX_EXTRA_PADDING = 40
 
 type Candle = {
   binId: number
@@ -33,18 +37,15 @@ export function StrategyPreview({
   bins,
   amountX,
   amountY,
+  startBin,
+  endBin,
+  onRangeChange,
+  editable,
 }: StrategyPreviewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [extraPadding, setExtraPadding] = useState(DEFAULT_PADDING)
 
-  // The core distribution range (minimum zoom)
-  const distRange = useMemo(() => {
-    if (distribution.binIds.length === 0) return { min: activeBinId, max: activeBinId }
-    const sorted = [...distribution.binIds].sort((a, b) => a - b)
-    return { min: sorted[0], max: sorted[sorted.length - 1] }
-  }, [distribution.binIds, activeBinId])
-
-  // Build all candle data for the full padded view
+  // Build candle data
   const candles = useMemo(() => {
     const reserveMap = new Map<number, { reserveX: bigint; reserveY: bigint }>()
     for (const bin of bins) {
@@ -69,9 +70,8 @@ export function StrategyPreview({
       }
     }
 
-    // View range = distribution range + extraPadding on each side
-    const viewMin = Math.max(0, distRange.min - extraPadding)
-    const viewMax = Math.min(16_777_215, distRange.max + extraPadding)
+    const viewMin = Math.max(0, startBin - extraPadding)
+    const viewMax = Math.min(16_777_215, endBin + extraPadding)
 
     const result: Candle[] = []
     for (let id = viewMin; id <= viewMax; id++) {
@@ -88,14 +88,13 @@ export function StrategyPreview({
       })
     }
     return result
-  }, [distribution, bins, amountX, amountY, distRange, extraPadding])
+  }, [distribution, bins, amountX, amountY, startBin, endBin, extraPadding])
 
-  // Scroll-to-zoom handler
+  // Scroll-to-zoom
   const scrollAccum = useRef(0)
   const handleWheel = useCallback(
     (e: WheelEvent) => {
       e.preventDefault()
-      // Accumulate scroll delta — only step after threshold to reduce sensitivity
       scrollAccum.current += e.deltaY
       const threshold = 50
       if (Math.abs(scrollAccum.current) < threshold) return
@@ -108,13 +107,37 @@ export function StrategyPreview({
     [],
   )
 
-  // Attach wheel listener with passive: false so we can preventDefault
   useEffect(() => {
     const el = svgRef.current?.parentElement
     if (!el) return
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, [handleWheel])
+
+  // Store scale ref for drag handler
+  const xScaleRef = useRef<d3.ScaleBand<number> | null>(null)
+  // Track drag state locally so we don't re-render mid-gesture
+  const draggingRef = useRef<{ side: 'left' | 'right'; currentBin: number } | null>(null)
+  const innerHRef = useRef(0)
+
+  // Find nearest bin ID from pixel x position
+  const findNearestBin = useCallback((mouseX: number): number | null => {
+    const x = xScaleRef.current
+    if (!x) return null
+    const domain = x.domain()
+    const bw = x.bandwidth()
+    let closest: number | null = null
+    let closestDist = Infinity
+    for (const binId of domain) {
+      const center = (x(binId) ?? 0) + bw / 2
+      const dist = Math.abs(mouseX - center)
+      if (dist < closestDist) {
+        closestDist = dist
+        closest = binId
+      }
+    }
+    return closest
+  }, [])
 
   // D3 render
   useEffect(() => {
@@ -141,11 +164,13 @@ export function StrategyPreview({
       .range([0, innerW])
       .padding(0.12)
 
-    // Y scale — only based on actual liquidity (existing + added)
+    xScaleRef.current = x
+
+    // Y scale
     const yMax = d3.max(candles, (c) => c.existing + c.added) ?? 0
     const y = d3.scaleLinear().domain([0, Math.max(yMax, 1)]).nice().range([innerH, 0])
 
-    // X axis — price label for every bin
+    // X axis — price for every bin
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
       .call(d3.axisBottom(x).tickFormat((d) => formatBinPrice(d as number, binStep, 4)))
@@ -157,22 +182,22 @@ export function StrategyPreview({
       .attr('dx', '-0.3em')
       .attr('dy', '0.15em')
 
-    // Background shading for the working range
-    const firstWorkingX = x(distRange.min)
-    const lastWorkingX = x(distRange.max)
-    if (firstWorkingX !== undefined && lastWorkingX !== undefined) {
+    // Selected range shading
+    const firstX = x(startBin)
+    const lastX = x(endBin)
+    if (firstX !== undefined && lastX !== undefined) {
       g.append('rect')
-        .attr('x', firstWorkingX)
+        .attr('x', firstX)
         .attr('y', 0)
-        .attr('width', lastWorkingX + x.bandwidth() - firstWorkingX)
+        .attr('width', lastX + x.bandwidth() - firstX)
         .attr('height', innerH)
         .attr('fill', '#6366f1')
-        .attr('opacity', 0.04)
+        .attr('opacity', 0.06)
     }
 
-    const MIN_BAR_PX = 3 // minimum visible height so every bin is visible
+    const MIN_BAR_PX = 3
 
-    // Existing liquidity (bottom layer) — all bins get at least MIN_BAR_PX
+    // Existing liquidity bars
     g.selectAll('.bar-existing')
       .data(candles)
       .enter()
@@ -192,7 +217,7 @@ export function StrategyPreview({
       .attr('opacity', (d) => (d.existing > 0 ? 0.7 : 0.25))
       .attr('rx', 1)
 
-    // Added liquidity (stacked on top, blue) — only bins with actual deposit
+    // Added liquidity bars
     g.selectAll('.bar-added')
       .data(candles.filter((c) => c.added > 0))
       .enter()
@@ -218,9 +243,140 @@ export function StrategyPreview({
         .attr('stroke-dasharray', '3,2')
         .attr('opacity', 0.6)
     }
-  }, [candles, activeBinId, binStep, distRange])
+
+    // Draggable boundary handles (only when editable)
+    if (editable) {
+      const handleColor = '#818cf8'
+      innerHRef.current = innerH
+
+      // Helper to position a handle group at a given xPos
+      function positionHandle(
+        handle: d3.Selection<SVGGElement, unknown, null, undefined>,
+        xPos: number,
+        side: 'left' | 'right',
+      ) {
+        const triSize = 6
+        handle.select('line')
+          .attr('x1', xPos).attr('x2', xPos)
+        handle.select('path')
+          .attr('d', `M${xPos},0 L${xPos - triSize},-${triSize} L${xPos + triSize},-${triSize} Z`)
+        handle.select('rect')
+          .attr('x', xPos - 12)
+      }
+
+      // Helper to draw a handle
+      function drawHandle(
+        binId: number,
+        side: 'left' | 'right',
+      ) {
+        const xPos = side === 'left'
+          ? (x(binId) ?? 0)
+          : (x(binId) ?? 0) + x.bandwidth()
+
+        const handle = g.append('g')
+          .attr('class', `handle-${side}`)
+          .style('cursor', 'ew-resize')
+
+        // Vertical line
+        handle.append('line')
+          .attr('x1', xPos)
+          .attr('x2', xPos)
+          .attr('y1', 0)
+          .attr('y2', innerH)
+          .attr('stroke', handleColor)
+          .attr('stroke-width', 2)
+
+        // Grab triangle at top
+        const triSize = 6
+        handle.append('path')
+          .attr('d', `M${xPos},0 L${xPos - triSize},-${triSize} L${xPos + triSize},-${triSize} Z`)
+          .attr('fill', handleColor)
+
+        // Invisible wider hit area for easier dragging
+        handle.append('rect')
+          .attr('x', xPos - 12)
+          .attr('y', -triSize)
+          .attr('width', 24)
+          .attr('height', innerH + triSize)
+          .attr('fill', 'transparent')
+
+        return handle
+      }
+
+      const leftHandle = drawHandle(startBin, 'left')
+      const rightHandle = drawHandle(endBin, 'right')
+
+      // Shading rect reference for live updates
+      const shadingRect = g.select<SVGRectElement>('rect[fill="#6366f1"][opacity="0.06"]')
+
+      // Live-update bars to reflect the dragged range
+      function updateBarsForRange(newStart: number, newEnd: number) {
+        // Update shading
+        const sFirstX = x(newStart)
+        const sLastX = x(newEnd)
+        if (sFirstX !== undefined && sLastX !== undefined) {
+          shadingRect
+            .attr('x', sFirstX)
+            .attr('width', sLastX + x.bandwidth() - sFirstX)
+        }
+
+        // Grey out / restore existing bars
+        g.selectAll<SVGRectElement, Candle>('.bar-existing')
+          .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? '#2a2a3a' : '#1a1a24')
+          .attr('opacity', (d) => {
+            const inRange = d.binId >= newStart && d.binId <= newEnd
+            if (!inRange) return 0.15
+            return d.existing > 0 ? 0.7 : 0.25
+          })
+
+        // Show/hide added bars
+        g.selectAll<SVGRectElement, Candle>('.bar-added')
+          .attr('opacity', (d) => (d.binId >= newStart && d.binId <= newEnd) ? 0.9 : 0)
+      }
+
+      // Drag behaviors — update visuals locally, commit only on end
+      const dragLeft = d3.drag<SVGGElement, unknown>()
+        .on('start', () => {
+          draggingRef.current = { side: 'left', currentBin: startBin }
+        })
+        .on('drag', function (event) {
+          const nearest = findNearestBin(event.x)
+          if (nearest === null || nearest > endBin) return
+          draggingRef.current = { side: 'left', currentBin: nearest }
+          positionHandle(leftHandle, x(nearest) ?? 0, 'left')
+          updateBarsForRange(nearest, endBin)
+        })
+        .on('end', () => {
+          const drag = draggingRef.current
+          draggingRef.current = null
+          if (drag) onRangeChange(drag.currentBin, endBin)
+        })
+
+      const dragRight = d3.drag<SVGGElement, unknown>()
+        .on('start', () => {
+          draggingRef.current = { side: 'right', currentBin: endBin }
+        })
+        .on('drag', function (event) {
+          const nearest = findNearestBin(event.x)
+          if (nearest === null || nearest < startBin) return
+          draggingRef.current = { side: 'right', currentBin: nearest }
+          positionHandle(rightHandle, (x(nearest) ?? 0) + x.bandwidth(), 'right')
+          updateBarsForRange(startBin, nearest)
+        })
+        .on('end', () => {
+          const drag = draggingRef.current
+          draggingRef.current = null
+          if (drag) onRangeChange(startBin, drag.currentBin)
+        })
+
+      leftHandle.call(dragLeft as never)
+      rightHandle.call(dragRight as never)
+    }
+  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange])
 
   if (candles.length === 0) return null
+
+  const totalBins = endBin - startBin + 1
 
   return (
     <div className="rounded-lg border border-border bg-surface-overlay p-3">
@@ -245,10 +401,50 @@ export function StrategyPreview({
           </div>
         )}
       </div>
-      {extraPadding > DEFAULT_PADDING && (
-        <p className="text-[10px] text-text-muted mt-1 text-center">
-          Scroll up to zoom back in
-        </p>
+
+      {/* Range controls below the chart */}
+      {editable && (
+        <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onRangeChange(startBin - 1, endBin)}
+              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+            >
+              -
+            </button>
+            <div className="text-xs font-mono text-text-secondary px-1">
+              <span className="text-text-muted">Min </span>
+              {formatBinPrice(startBin, binStep, 4)}
+            </div>
+            <button
+              onClick={() => { if (startBin < endBin) onRangeChange(startBin + 1, endBin) }}
+              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+            >
+              +
+            </button>
+          </div>
+
+          <span className="text-[10px] text-text-muted">{totalBins} bins</span>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { if (endBin > startBin) onRangeChange(startBin, endBin - 1) }}
+              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+            >
+              -
+            </button>
+            <div className="text-xs font-mono text-text-secondary px-1">
+              <span className="text-text-muted">Max </span>
+              {formatBinPrice(endBin, binStep, 4)}
+            </div>
+            <button
+              onClick={() => onRangeChange(startBin, endBin + 1)}
+              className="w-6 h-6 flex items-center justify-center rounded bg-surface text-text-muted hover:text-text-primary hover:bg-surface-raised text-xs transition-colors"
+            >
+              +
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
