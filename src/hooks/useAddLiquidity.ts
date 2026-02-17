@@ -26,6 +26,7 @@ type AddLiquidityParams = {
   amountY: bigint
   strategy: Strategy
   shape: DistShape
+  intensity: number
   startBin: number
   endBin: number
 }
@@ -73,11 +74,11 @@ export function useAddLiquidity() {
       }
     } else if (params.strategy === 'curve') {
       // Curve (bell curve): most liquidity at center
-      const dist = generateCurveDistribution(params.activeBinId, params.startBin, params.endBin, params.shape)
+      const dist = generateCurveDistribution(params.activeBinId, params.startBin, params.endBin, params.shape, params.intensity)
       mintDirect(params, dist, deadline)
     } else {
       // Bid-Ask (inverse curve): most liquidity on edges
-      const dist = generateBidAskDistribution(params.activeBinId, params.startBin, params.endBin, params.shape)
+      const dist = generateBidAskDistribution(params.activeBinId, params.startBin, params.endBin, params.shape, params.intensity)
       mintDirect(params, dist, deadline)
     }
 
