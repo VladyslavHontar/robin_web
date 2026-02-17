@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { WrapEthButton } from './WrapEthButton'
 
 export function Nav() {
   return (
@@ -17,6 +18,7 @@ export function Nav() {
               <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
               Testnet
             </span>
+            <WrapEthButton />
             <ConnectButton showBalance={false} chainStatus="icon" accountStatus="avatar" />
           </div>
         </div>
