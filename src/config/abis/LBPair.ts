@@ -1,0 +1,105 @@
+export const lbPairAbi = [
+  {
+    type: 'function',
+    name: 'tokenX',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'tokenY',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'binStep',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint16' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'activeId',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint24' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'compliance',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'oracle',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getBinReserves',
+    inputs: [{ name: 'binId', type: 'uint24' }],
+    outputs: [
+      { name: 'reserveX', type: 'uint128' },
+      { name: 'reserveY', type: 'uint128' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getNextNonEmptyBin',
+    inputs: [
+      { name: 'binId', type: 'uint24' },
+      { name: 'swapForY', type: 'bool' },
+    ],
+    outputs: [{ name: 'nextBinId', type: 'uint24' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getFeeParameters',
+    inputs: [],
+    outputs: [
+      {
+        name: 'feeParams',
+        type: 'tuple',
+        components: [
+          { name: 'baseFee', type: 'uint16' },
+          { name: 'protocolShare', type: 'uint16' },
+          { name: 'maxVolatilityFee', type: 'uint16' },
+          { name: 'volatilityReference', type: 'uint24' },
+          { name: 'filterPeriod', type: 'uint16' },
+          { name: 'decayPeriod', type: 'uint16' },
+          { name: 'reductionFactor', type: 'uint24' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getTotalShares',
+    inputs: [{ name: 'binId', type: 'uint24' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getSwapOut',
+    inputs: [
+      { name: 'swapForY', type: 'bool' },
+      { name: 'amountIn', type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'amountOut', type: 'uint256' },
+      { name: 'fees', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+] as const
