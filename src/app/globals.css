@@ -2,19 +2,19 @@
 @import "@rainbow-me/rainbowkit/styles.css";
 
 @theme {
-  --color-surface: #0a0a0f;
-  --color-surface-raised: #12121a;
-  --color-surface-overlay: #1a1a26;
-  --color-border: #2a2a3a;
-  --color-text-primary: #e4e4ef;
-  --color-text-secondary: #8888a0;
-  --color-text-muted: #55556a;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-reserve-x: #3b82f6;
-  --color-reserve-y: #22c55e;
-  --color-active-bin: #f59e0b;
-  --color-success: #22c55e;
+  --color-surface: #000000;
+  --color-surface-raised: #051a0a;
+  --color-surface-overlay: #041209;
+  --color-border: #0B5D1E;
+  --color-text-primary: #e0f0e4;
+  --color-text-secondary: #7aad85;
+  --color-text-muted: #3d6e48;
+  --color-accent: #0DAB76;
+  --color-accent-hover: #139A43;
+  --color-reserve-x: #0DAB76;
+  --color-reserve-y: #139A43;
+  --color-active-bin: #76fff4;
+  --color-success: #0DAB76;
   --color-warning: #f59e0b;
   --color-error: #ef4444;
 }
