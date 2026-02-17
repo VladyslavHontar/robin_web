@@ -102,4 +102,27 @@ export const lbPairAbi = [
     ],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    name: 'mint',
+    inputs: [
+      {
+        name: 'params',
+        type: 'tuple',
+        components: [
+          { name: 'binIds', type: 'uint24[]' },
+          { name: 'distributionX', type: 'uint64[]' },
+          { name: 'distributionY', type: 'uint64[]' },
+          { name: 'amountX', type: 'uint256' },
+          { name: 'amountY', type: 'uint256' },
+          { name: 'activeIdDesired', type: 'uint24' },
+          { name: 'idSlippage', type: 'uint24' },
+          { name: 'deadline', type: 'uint256' },
+          { name: 'to', type: 'address' },
+        ],
+      },
+    ],
+    outputs: [{ name: 'shares', type: 'uint256[]' }],
+    stateMutability: 'nonpayable',
+  },
 ] as const

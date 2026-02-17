@@ -2,14 +2,14 @@
 
 import { type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { WagmiProvider, createConfig, http } from 'wagmi'
+import { WagmiProvider } from 'wagmi'
+import { RainbowKitProvider, getDefaultConfig, darkTheme } from '@rainbow-me/rainbowkit'
 import { robinhoodTestnet } from '@/config/chains'
 
-const config = createConfig({
+const config = getDefaultConfig({
+  appName: 'Robin DLMM Dashboard',
+  projectId: 'robin-dlmm-dashboard',
   chains: [robinhoodTestnet],
-  transports: {
-    [robinhoodTestnet.id]: http(),
-  },
   ssr: true,
 })
 
@@ -26,7 +26,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <RainbowKitProvider
+          theme={darkTheme({
+            accentColor: '#6366f1',
+            accentColorForeground: 'white',
+            borderRadius: 'medium',
+          })}
+        >
+          {children}
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   )
