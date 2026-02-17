@@ -123,11 +123,12 @@ export function generateCurveDistribution(
   startBin: number,
   endBin: number,
   shape: DistShape = 'exponential',
+  intensity = 1.0,
 ): Distribution {
   const maxDist = Math.max(activeBinId - startBin, endBin - activeBinId, 1)
   const weightFn = shape === 'linear'
     ? (d: number) => maxDist + 1 - Math.abs(d)
-    : (d: number) => Math.exp(-Math.abs(d))
+    : (d: number) => Math.exp(-Math.abs(d) * intensity)
   return buildWeightedDistribution(activeBinId, startBin, endBin, weightFn)
 }
 
@@ -139,10 +140,11 @@ export function generateBidAskDistribution(
   startBin: number,
   endBin: number,
   shape: DistShape = 'exponential',
+  intensity = 1.0,
 ): Distribution {
   const weightFn = shape === 'linear'
     ? (d: number) => Math.abs(d) + 1
-    : (d: number) => Math.exp(Math.abs(d) * 0.5)
+    : (d: number) => Math.exp(Math.abs(d) * intensity * 0.5)
   return buildWeightedDistribution(activeBinId, startBin, endBin, weightFn)
 }
 

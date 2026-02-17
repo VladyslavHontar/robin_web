@@ -20,6 +20,7 @@ type StrategyPreviewProps = {
   editable: boolean
   tokenXSymbol: string
   tokenYSymbol: string
+  distributionFn: (startBin: number, endBin: number) => Distribution
 }
 
 const PRECISION = 10n ** 18n
@@ -67,8 +68,18 @@ export function StrategyPreview({
   editable,
   tokenXSymbol,
   tokenYSymbol,
+  distributionFn,
 }: StrategyPreviewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const tooltipRef = useRef<d3.Selection<HTMLDivElement, unknown, null, undefined> | null>(null)
+  const prevDomainRef = useRef<string>('')
+  const hasRenderedRef = useRef(false)
+  const distributionFnRef = useRef(distributionFn)
+  distributionFnRef.current = distributionFn
+  const amountXRef = useRef(amountX)
+  amountXRef.current = amountX
+  const amountYRef = useRef(amountY)
+  amountYRef.current = amountY
   const [extraPadding, setExtraPadding] = useState(DEFAULT_PADDING)
 
   // Build candle data
@@ -175,7 +186,6 @@ export function StrategyPreview({
     if (!svgRef.current || candles.length === 0) return
 
     const svg = d3.select(svgRef.current)
-    svg.selectAll('*').remove()
 
     const container = svgRef.current.parentElement
     const width = container?.clientWidth ?? 500
@@ -184,10 +194,83 @@ export function StrategyPreview({
     const innerW = width - margin.left - margin.right
     const innerH = height - margin.top - margin.bottom
 
-    svg.attr('viewBox', `0 0 ${width} ${height}`)
-
     const styles = getComputedStyle(document.documentElement)
     const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#f59e0b'
+
+    const COLOR_EXISTING_Y = '#0B5D1E'
+    const COLOR_EXISTING_X = '#0a2912'
+    const COLOR_ADDED_Y = '#139A43'
+    const COLOR_ADDED_X = '#0DAB76'
+    const COLOR_DESELECTED = '#040f07'
+
+    // Check if domain (visible bins) changed — if not, do in-place update
+    const domainKey = candles.map((c) => c.binId).join(',')
+    const domainChanged = domainKey !== prevDomainRef.current
+    prevDomainRef.current = domainKey
+
+    // Y scale (always recompute — values may have changed)
+    const yMax = d3.max(candles, (c) => c.existing + c.added) ?? 0
+    const y = d3.scaleLinear().domain([0, Math.max(yMax, 1)]).nice().range([innerH, 0])
+
+    // === IN-PLACE UPDATE (same domain — smooth transition, no teardown) ===
+    if (!domainChanged) {
+      const g = svg.select<SVGGElement>('g')
+      const x = xScaleRef.current!
+      const bw = x.bandwidth()
+      const UPDATE_DURATION = 250
+      const UPDATE_EASE = d3.easeCubicOut
+
+      // Update existing-Y
+      g.selectAll<SVGPathElement, Candle>('.bar-existing-y')
+        .data(candles, (d) => String(d.binId))
+        .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
+        .attr('d', (d) => {
+          if (d.existing <= 0) return roundedTopRect(x(d.binId)!, innerH - MIN_BAR_PX, bw, MIN_BAR_PX, BAR_RADIUS)
+          const h = innerH - y(d.existingY)
+          return roundedTopRect(x(d.binId)!, y(d.existingY), bw, h, BAR_RADIUS)
+        })
+
+      // Update existing-X
+      g.selectAll<SVGPathElement, Candle>('.bar-existing-x')
+        .data(candles.filter((c) => c.existingX > 0), (d) => String(d.binId))
+        .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
+        .attr('d', (d) => {
+          const by = y(d.existing)
+          const h = y(d.existingY) - by
+          return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+        })
+
+      // Update added-Y
+      g.selectAll<SVGPathElement, Candle>('.bar-added-y')
+        .data(candles, (d) => String(d.binId))
+        .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
+        .attr('d', (d) => {
+          if (d.addedY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+          const baseTop = y(d.existing)
+          const addedYH = baseTop - y(d.existing + d.addedY)
+          return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+        })
+        .attr('opacity', (d) => d.addedY > 0 ? 0.9 : 0)
+
+      // Update added-X
+      g.selectAll<SVGPathElement, Candle>('.bar-added-x')
+        .data(candles, (d) => String(d.binId))
+        .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
+        .attr('d', (d) => {
+          if (d.addedX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+          const by = y(d.existing + d.added)
+          const topOfAddedY = y(d.existing + d.addedY)
+          const h = topOfAddedY - by
+          return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+        })
+        .attr('opacity', (d) => d.addedX > 0 ? 0.9 : 0)
+
+      return
+    }
+
+    // === FULL REBUILD (domain changed) ===
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
@@ -199,10 +282,6 @@ export function StrategyPreview({
       .padding(0.12)
 
     xScaleRef.current = x
-
-    // Y scale
-    const yMax = d3.max(candles, (c) => c.existing + c.added) ?? 0
-    const y = d3.scaleLinear().domain([0, Math.max(yMax, 1)]).nice().range([innerH, 0])
 
     // X axis — price for every bin
     g.append('g')
@@ -232,72 +311,96 @@ export function StrategyPreview({
 
     const bw = x.bandwidth()
 
-    const COLOR_EXISTING_Y = '#0B5D1E'
-    const COLOR_EXISTING_X = '#0a2912'
-    const COLOR_ADDED_Y = '#139A43'
-    const COLOR_ADDED_X = '#0DAB76'
-    const COLOR_DESELECTED = '#040f07'
+    // First render: grow from baseline. Subsequent rebuilds (zoom): instant.
+    const isFirstRender = !hasRenderedRef.current
+    hasRenderedRef.current = true
 
-    // Layer 1: Existing Y (bottom)
-    g.selectAll('.bar-existing-y')
-      .data(candles, (d) => String((d as Candle).binId))
-      .enter()
-      .append('path')
-      .attr('class', 'bar-existing-y')
-      .attr('d', (d) => {
-        const total = d.existing
-        if (total <= 0) {
-          const h = MIN_BAR_PX
-          return roundedTopRect(x(d.binId)!, innerH - h, bw, h, BAR_RADIUS)
-        }
-        const h = innerH - y(d.existingY)
-        return roundedTopRect(x(d.binId)!, y(d.existingY), bw, h, BAR_RADIUS)
-      })
-      .attr('fill', COLOR_EXISTING_Y)
-      .attr('opacity', (d) => (d.existing > 0 ? 0.8 : 0.25))
+    const targetExistingY = (d: Candle) => {
+      if (d.existing <= 0) return roundedTopRect(x(d.binId)!, innerH - MIN_BAR_PX, bw, MIN_BAR_PX, BAR_RADIUS)
+      const h = innerH - y(d.existingY)
+      return roundedTopRect(x(d.binId)!, y(d.existingY), bw, h, BAR_RADIUS)
+    }
+    const targetExistingX = (d: Candle) => {
+      const by = y(d.existing)
+      const h = y(d.existingY) - by
+      return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+    }
+    const targetAddedY = (d: Candle) => {
+      if (d.addedY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+      const baseTop = y(d.existing)
+      const addedYH = baseTop - y(d.existing + d.addedY)
+      return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+    }
+    const targetAddedX = (d: Candle) => {
+      if (d.addedX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+      const by = y(d.existing + d.added)
+      const topOfAddedY = y(d.existing + d.addedY)
+      const h = topOfAddedY - by
+      return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+    }
 
-    // Layer 2: Existing X (stacked on Y)
-    g.selectAll('.bar-existing-x')
-      .data(candles.filter((c) => c.existingX > 0), (d) => String((d as Candle).binId))
-      .enter()
-      .append('path')
-      .attr('class', 'bar-existing-x')
-      .attr('d', (d) => {
-        const by = y(d.existing)
-        const h = y(d.existingY) - by
-        return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
-      })
-      .attr('fill', COLOR_EXISTING_X)
-      .attr('opacity', 0.8)
+    if (isFirstRender) {
+      const ENTER_DURATION = 400
+      const ENTER_EASE = d3.easeCubicOut
+      const baseline = (d: Candle) => roundedTopRect(x(d.binId)!, innerH - MIN_BAR_PX, bw, MIN_BAR_PX, BAR_RADIUS)
+      const zeroBar = (d: Candle) => roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
 
-    // Layer 3: Added Y (stacked on existing)
-    g.selectAll('.bar-added-y')
-      .data(candles.filter((c) => c.addedY > 0), (d) => String((d as Candle).binId))
-      .enter()
-      .append('path')
-      .attr('class', 'bar-added-y')
-      .attr('d', (d) => {
-        const baseTop = y(d.existing)
-        const addedYH = baseTop - y(d.existing + d.addedY)
-        return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
-      })
-      .attr('fill', COLOR_ADDED_Y)
-      .attr('opacity', 0.9)
+      g.selectAll('.bar-existing-y')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-existing-y')
+        .attr('d', baseline).attr('fill', COLOR_EXISTING_Y).attr('opacity', 0)
+        .transition().duration(ENTER_DURATION).ease(ENTER_EASE)
+        .attr('d', targetExistingY)
+        .attr('opacity', (d) => (d.existing > 0 ? 0.8 : 0.25))
 
-    // Layer 4: Added X (stacked on added Y)
-    g.selectAll('.bar-added-x')
-      .data(candles.filter((c) => c.addedX > 0), (d) => String((d as Candle).binId))
-      .enter()
-      .append('path')
-      .attr('class', 'bar-added-x')
-      .attr('d', (d) => {
-        const by = y(d.existing + d.added)
-        const topOfAddedY = y(d.existing + d.addedY)
-        const h = topOfAddedY - by
-        return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
-      })
-      .attr('fill', COLOR_ADDED_X)
-      .attr('opacity', 0.9)
+      g.selectAll('.bar-existing-x')
+        .data(candles.filter((c) => c.existingX > 0), (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-existing-x')
+        .attr('d', (d) => roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS))
+        .attr('fill', COLOR_EXISTING_X).attr('opacity', 0)
+        .transition().duration(ENTER_DURATION).ease(ENTER_EASE)
+        .attr('d', targetExistingX).attr('opacity', 0.8)
+
+      g.selectAll('.bar-added-y')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-added-y')
+        .attr('d', zeroBar).attr('fill', COLOR_ADDED_Y).attr('opacity', 0)
+        .transition().duration(ENTER_DURATION).ease(ENTER_EASE)
+        .attr('d', targetAddedY)
+        .attr('opacity', (d) => d.addedY > 0 ? 0.9 : 0)
+
+      g.selectAll('.bar-added-x')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-added-x')
+        .attr('d', zeroBar).attr('fill', COLOR_ADDED_X).attr('opacity', 0)
+        .transition().duration(ENTER_DURATION).ease(ENTER_EASE)
+        .attr('d', targetAddedX)
+        .attr('opacity', (d) => d.addedX > 0 ? 0.9 : 0)
+    } else {
+      // Subsequent rebuilds (zoom, etc.) — instant placement, no animation
+      g.selectAll('.bar-existing-y')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-existing-y')
+        .attr('d', targetExistingY).attr('fill', COLOR_EXISTING_Y)
+        .attr('opacity', (d) => (d.existing > 0 ? 0.8 : 0.25))
+
+      g.selectAll('.bar-existing-x')
+        .data(candles.filter((c) => c.existingX > 0), (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-existing-x')
+        .attr('d', targetExistingX).attr('fill', COLOR_EXISTING_X).attr('opacity', 0.8)
+
+      g.selectAll('.bar-added-y')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-added-y')
+        .attr('d', targetAddedY).attr('fill', COLOR_ADDED_Y)
+        .attr('opacity', (d) => d.addedY > 0 ? 0.9 : 0)
+
+      g.selectAll('.bar-added-x')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-added-x')
+        .attr('d', targetAddedX).attr('fill', COLOR_ADDED_X)
+        .attr('opacity', (d) => d.addedX > 0 ? 0.9 : 0)
+    }
 
     // Active bin marker
     if (x(activeBinId) !== undefined) {
@@ -313,11 +416,13 @@ export function StrategyPreview({
     }
 
     // Invisible hit areas + tooltip
+    if (tooltipRef.current) tooltipRef.current.remove()
     const tooltip = d3
       .select(svgRef.current.parentElement!)
       .append('div')
       .attr('class', 'absolute pointer-events-none bg-surface-overlay border border-border rounded-lg px-3 py-2 text-xs hidden')
       .style('z-index', '20')
+    tooltipRef.current = tooltip
 
     g.selectAll('.bar-hitarea')
       .data(candles, (d) => String((d as Candle).binId))
@@ -427,17 +532,35 @@ export function StrategyPreview({
 
       const shadingRect = g.select<SVGRectElement>('.range-shading')
 
-      // Live-update bars to reflect the dragged range
+      const DRAG_DURATION = 120
+      const DRAG_EASE = d3.easeCubicOut
+
+      // Live-update bars to reflect the dragged range (recalculates distribution)
       function updateBarsForRange(newStart: number, newEnd: number) {
         const sFirstX = x(newStart)
         const sLastX = x(newEnd)
         if (sFirstX !== undefined && sLastX !== undefined) {
           shadingRect
+            .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
             .attr('x', sFirstX)
             .attr('width', sLastX + bw - sFirstX)
         }
 
+        // Recalculate distribution for the new range (use refs for fresh values)
+        const newDist = distributionFnRef.current(newStart, newEnd)
+        const curAmountX = amountXRef.current
+        const curAmountY = amountYRef.current
+        const addMap = new Map<number, { addX: number; addY: number }>()
+        for (let i = 0; i < newDist.binIds.length; i++) {
+          const dX = newDist.distributionX[i]
+          const dY = newDist.distributionY[i]
+          const adX = Number((curAmountX * dX) / PRECISION)
+          const adY = Number((curAmountY * dY) / PRECISION)
+          addMap.set(newDist.binIds[i], { addX: adX, addY: adY })
+        }
+
         g.selectAll<SVGPathElement, Candle>('.bar-existing-y')
+          .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
           .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_Y : COLOR_DESELECTED)
           .attr('opacity', (d) => {
             const inRange = d.binId >= newStart && d.binId <= newEnd
@@ -446,11 +569,44 @@ export function StrategyPreview({
           })
 
         g.selectAll<SVGPathElement, Candle>('.bar-existing-x')
+          .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
           .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_X : COLOR_DESELECTED)
           .attr('opacity', (d) => (d.binId >= newStart && d.binId <= newEnd) ? 0.8 : 0.15)
 
-        g.selectAll<SVGPathElement, Candle>('.bar-added-y, .bar-added-x')
-          .attr('opacity', (d) => (d.binId >= newStart && d.binId <= newEnd) ? 0.9 : 0)
+        // Update added-Y bar geometry and opacity
+        g.selectAll<SVGPathElement, Candle>('.bar-added-y')
+          .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
+          .attr('d', (d) => {
+            const add = addMap.get(d.binId)
+            const adY = add?.addY ?? 0
+            if (adY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+            const baseTop = y(d.existing)
+            const addedYH = baseTop - y(d.existing + adY)
+            return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+          })
+          .attr('opacity', (d) => {
+            const add = addMap.get(d.binId)
+            return (add?.addY ?? 0) > 0 ? 0.9 : 0
+          })
+
+        // Update added-X bar geometry and opacity
+        g.selectAll<SVGPathElement, Candle>('.bar-added-x')
+          .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
+          .attr('d', (d) => {
+            const add = addMap.get(d.binId)
+            const adX = add?.addX ?? 0
+            const adY = add?.addY ?? 0
+            if (adX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+            const totalAdded = adX + adY
+            const by = y(d.existing + totalAdded)
+            const topOfAddedY = y(d.existing + adY)
+            const h = topOfAddedY - by
+            return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
+          })
+          .attr('opacity', (d) => {
+            const add = addMap.get(d.binId)
+            return (add?.addX ?? 0) > 0 ? 0.9 : 0
+          })
       }
 
       // Drag behaviors — update visuals locally, commit only on end
@@ -492,10 +648,17 @@ export function StrategyPreview({
       rightHandle.call(dragRight as never)
     }
 
-    return () => {
-      tooltip.remove()
-    }
   }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange, tokenXSymbol, tokenYSymbol])
+
+  // Tooltip cleanup on unmount only
+  useEffect(() => {
+    return () => {
+      if (tooltipRef.current) {
+        tooltipRef.current.remove()
+        tooltipRef.current = null
+      }
+    }
+  }, [])
 
   if (candles.length === 0) return null
 

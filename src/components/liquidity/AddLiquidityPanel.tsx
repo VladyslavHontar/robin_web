@@ -5,6 +5,7 @@ import { useAccount } from 'wagmi'
 import { parseEther, type Address } from 'viem'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TokenInput } from './TokenInput'
+import { ScrollPicker } from './ScrollPicker'
 import { StrategyPreview } from './StrategyPreview'
 import { useTokenApproval } from '@/hooks/useTokenApproval'
 import { useAddLiquidity, type Strategy } from '@/hooks/useAddLiquidity'
@@ -49,6 +50,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
   const [startBin, setStartBin] = useState(pairState.activeId - 5)
   const [endBin, setEndBin] = useState(pairState.activeId + 5)
   const [distShape, setDistShape] = useState<DistShape>('exponential')
+  const [expIntensity, setExpIntensity] = useState(1.0)
 
   const contracts = getContracts(robinhoodTestnet.id)
 
@@ -100,9 +102,18 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
 
   const distribution = useMemo(() => {
     if (strategy === 'spot') return generateUniformDistribution(pairState.activeId, startBin, endBin)
-    if (strategy === 'curve') return generateCurveDistribution(pairState.activeId, startBin, endBin, distShape)
-    return generateBidAskDistribution(pairState.activeId, startBin, endBin, distShape)
-  }, [strategy, pairState.activeId, startBin, endBin, distShape])
+    if (strategy === 'curve') return generateCurveDistribution(pairState.activeId, startBin, endBin, distShape, expIntensity)
+    return generateBidAskDistribution(pairState.activeId, startBin, endBin, distShape, expIntensity)
+  }, [strategy, pairState.activeId, startBin, endBin, distShape, expIntensity])
+
+  const distributionFn = useCallback(
+    (s: number, e: number) => {
+      if (strategy === 'spot') return generateUniformDistribution(pairState.activeId, s, e)
+      if (strategy === 'curve') return generateCurveDistribution(pairState.activeId, s, e, distShape, expIntensity)
+      return generateBidAskDistribution(pairState.activeId, s, e, distShape, expIntensity)
+    },
+    [strategy, pairState.activeId, distShape, expIntensity],
+  )
 
   const showTokenX = requiredTokens === 'both' || requiredTokens === 'onlyX'
   const showTokenY = requiredTokens === 'both' || requiredTokens === 'onlyY'
@@ -131,6 +142,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
       amountY: parsedAmountY,
       strategy,
       shape: distShape,
+      intensity: expIntensity,
       startBin,
       endBin,
     })
@@ -156,6 +168,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
             editable
             tokenXSymbol={tokenXSymbol}
             tokenYSymbol={tokenYSymbol}
+            distributionFn={distributionFn}
           />
         </div>
 
@@ -166,7 +179,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
             {strategies.map((s) => (
               <button
                 key={s.key}
-                onClick={() => { setStrategy(s.key); setDistShape('exponential'); reset() }}
+                onClick={() => { setStrategy(s.key); setDistShape('exponential'); setExpIntensity(1.0); reset() }}
                 className={`relative flex-1 text-xs py-1.5 px-2 rounded-md transition-colors z-10 ${
                   strategy === s.key
                     ? 'text-white'
@@ -200,7 +213,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
             </motion.p>
           </AnimatePresence>
 
-          {/* Shape selector (curve / bid-ask only) */}
+          {/* Shape selector + intensity wheel (curve / bid-ask only) */}
           <AnimatePresence>
             {(strategy === 'curve' || strategy === 'bidask') && (
               <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
@@ -221,6 +234,16 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                       </button>
                     ))}
                   </div>
+                  {distShape === 'exponential' && (
+                    <ScrollPicker
+                      value={expIntensity}
+                      onChange={setExpIntensity}
+                      min={0.01}
+                      max={3.0}
+                      step={0.01}
+                      format={(v) => v.toFixed(2)}
+                    />
+                  )}
                 </div>
               </motion.div>
             )}
