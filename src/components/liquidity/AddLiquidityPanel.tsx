@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { TokenInput } from './TokenInput'
 import { ScrollPicker } from './ScrollPicker'
 import { StrategyPreview } from './StrategyPreview'
+import { RemoveLiquidityPanel } from './RemoveLiquidityPanel'
 import { useTokenApproval } from '@/hooks/useTokenApproval'
 import { useAddLiquidity, type Strategy } from '@/hooks/useAddLiquidity'
 import { getContracts } from '@/config/contracts'
@@ -42,8 +43,11 @@ const slideAnim = {
   transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] as const },
 }
 
+type Mode = 'add' | 'remove'
+
 export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins }: Props) {
   const { isConnected } = useAccount()
+  const [mode, setMode] = useState<Mode>('add')
   const [strategy, setStrategy] = useState<Strategy>('spot')
   const [amountX, setAmountX] = useState('')
   const [amountY, setAmountY] = useState('')
@@ -133,8 +137,8 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
   if (!isConnected) {
     return (
       <div className="rounded-xl border border-border bg-surface-raised p-5">
-        <h3 className="text-sm font-semibold text-text-primary mb-3">Add Liquidity</h3>
-        <p className="text-sm text-text-muted">Connect your wallet to add liquidity.</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-3">Liquidity</h3>
+        <p className="text-sm text-text-muted">Connect your wallet to manage liquidity.</p>
       </div>
     )
   }
@@ -158,8 +162,53 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
 
   return (
     <div className="rounded-xl border border-border bg-surface-raised p-5">
-      <h3 className="text-sm font-semibold text-text-primary mb-4">Add Liquidity</h3>
+      {/* Add / Remove mode toggle */}
+      <div className="flex gap-1 bg-surface-overlay rounded-lg p-1 mb-4 w-fit">
+        {(['add', 'remove'] as Mode[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => { setMode(m); reset() }}
+            className={`relative px-4 py-1.5 rounded-md text-xs font-medium transition-colors z-10 ${
+              mode === m ? 'text-white' : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            {mode === m && (
+              <motion.div
+                layoutId="mode-indicator"
+                className="absolute inset-0 bg-accent rounded-md"
+                transition={{ type: 'spring', duration: 0.25, bounce: 0.15 }}
+                style={{ zIndex: -1 }}
+              />
+            )}
+            {m === 'add' ? 'Add' : 'Remove'}
+          </button>
+        ))}
+      </div>
 
+      <AnimatePresence mode="wait">
+        {mode === 'remove' ? (
+          <motion.div
+            key="remove"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+          >
+            <RemoveLiquidityPanel
+              pairState={pairState}
+              tokenXSymbol={tokenXSymbol}
+              tokenYSymbol={tokenYSymbol}
+              bins={bins}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="add"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+          >
       <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] lg:h-[420px] gap-5">
         {/* LEFT — Chart */}
         <div className="lg:h-full">
@@ -372,6 +421,9 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
           </AnimatePresence>
         </div>
       </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

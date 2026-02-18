@@ -97,6 +97,39 @@ export const lbPairAbi = [
   },
   {
     type: 'function',
+    name: 'balanceOf',
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'binId', type: 'uint24' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'burn',
+    inputs: [
+      {
+        name: 'params',
+        type: 'tuple',
+        components: [
+          { name: 'binIds',     type: 'uint24[]' },
+          { name: 'shares',     type: 'uint256[]' },
+          { name: 'minAmountX', type: 'uint256' },
+          { name: 'minAmountY', type: 'uint256' },
+          { name: 'deadline',   type: 'uint256' },
+          { name: 'to',         type: 'address' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'amountX', type: 'uint256' },
+      { name: 'amountY', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'mint',
     inputs: [
       {
