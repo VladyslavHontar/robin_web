@@ -3,5 +3,10 @@ services:
     build: .
     ports:
       - "3000:3000"
+    volumes:
+      - pool-data:/app/data
     environment:
       - NODE_ENV=production
+
+volumes:
+  pool-data:
