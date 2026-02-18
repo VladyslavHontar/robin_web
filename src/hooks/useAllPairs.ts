@@ -9,7 +9,7 @@ import type { Address } from 'viem'
 export function useAllPairs() {
   const { factory } = getContracts(robinhoodTestnet.id)
 
-  const { data: length, isLoading: isLoadingLength } = useReadContract({
+  const { data: length, isLoading: isLoadingLength, refetch: refetchLength } = useReadContract({
     address: factory,
     abi: lbFactoryAbi,
     functionName: 'allPairsLength',
@@ -36,5 +36,6 @@ export function useAllPairs() {
   return {
     pairs,
     isLoading: isLoadingLength || isLoadingPairs,
+    refetch: refetchLength,
   }
 }

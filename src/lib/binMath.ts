@@ -87,7 +87,10 @@ export function generateUniformDistribution(
   const distributionX: bigint[] = []
   const distributionY: bigint[] = []
 
-  // Count bins that receive each token
+  // Count bins that receive each token.
+  // The active bin gets HALF weight from each side so that when both
+  // contributions combine, its total value equals a single full bin.
+  const hasActiveBin = startBin <= activeBinId && endBin >= activeBinId
   let binsWithX = 0
   let binsWithY = 0
   for (let id = startBin; id <= endBin; id++) {
@@ -95,20 +98,36 @@ export function generateUniformDistribution(
     if (id <= activeBinId) binsWithY++
   }
 
-  const sharePerBinX = binsWithX > 0 ? PRECISION / BigInt(binsWithX) : 0n
-  const sharePerBinY = binsWithY > 0 ? PRECISION / BigInt(binsWithY) : 0n
+  // Active bin counts as half a bin on each side:
+  // totalX = (binsWithX - 1) full + 0.5 active = binsWithX - 0.5
+  // We use 2x precision to avoid fractions: share = 2*PRECISION / (2*binsWithX - 1)
+  // Active gets half that: PRECISION / (2*binsWithX - 1)
+  const fullShareX = hasActiveBin && binsWithX > 0
+    ? (2n * PRECISION) / BigInt(2 * binsWithX - 1)
+    : (binsWithX > 0 ? PRECISION / BigInt(binsWithX) : 0n)
+  const halfShareX = hasActiveBin && binsWithX > 0
+    ? PRECISION / BigInt(2 * binsWithX - 1)
+    : fullShareX
+
+  const fullShareY = hasActiveBin && binsWithY > 0
+    ? (2n * PRECISION) / BigInt(2 * binsWithY - 1)
+    : (binsWithY > 0 ? PRECISION / BigInt(binsWithY) : 0n)
+  const halfShareY = hasActiveBin && binsWithY > 0
+    ? PRECISION / BigInt(2 * binsWithY - 1)
+    : fullShareY
 
   for (let id = startBin; id <= endBin; id++) {
     binIds.push(id)
     if (id < activeBinId) {
       distributionX.push(0n)
-      distributionY.push(sharePerBinY)
+      distributionY.push(fullShareY)
     } else if (id > activeBinId) {
-      distributionX.push(sharePerBinX)
+      distributionX.push(fullShareX)
       distributionY.push(0n)
     } else {
-      distributionX.push(sharePerBinX)
-      distributionY.push(sharePerBinY)
+      // Active bin gets half from each side
+      distributionX.push(halfShareX)
+      distributionY.push(halfShareY)
     }
   }
 
@@ -158,6 +177,7 @@ function buildWeightedDistribution(
   const binIds: number[] = []
   const rawWeights: number[] = []
 
+  const hasActiveBin = startBin <= activeBinId && endBin >= activeBinId
   let totalWeightX = 0
   let totalWeightY = 0
 
@@ -167,8 +187,14 @@ function buildWeightedDistribution(
     binIds.push(id)
     rawWeights.push(weight)
 
-    if (id <= activeBinId) totalWeightY += weight
-    if (id >= activeBinId) totalWeightX += weight
+    // Active bin contributes half weight to each side's total
+    if (id === activeBinId && hasActiveBin) {
+      totalWeightY += weight / 2
+      totalWeightX += weight / 2
+    } else {
+      if (id <= activeBinId) totalWeightY += weight
+      if (id >= activeBinId) totalWeightX += weight
+    }
   }
 
   const distributionX: bigint[] = []
@@ -185,8 +211,10 @@ function buildWeightedDistribution(
       distributionX.push(BigInt(Math.round((weight / totalWeightX) * Number(PRECISION))))
       distributionY.push(0n)
     } else {
-      distributionX.push(BigInt(Math.round((weight / totalWeightX) * Number(PRECISION))))
-      distributionY.push(BigInt(Math.round((weight / totalWeightY) * Number(PRECISION))))
+      // Active bin: half weight from each side
+      const halfWeight = weight / 2
+      distributionX.push(BigInt(Math.round((halfWeight / totalWeightX) * Number(PRECISION))))
+      distributionY.push(BigInt(Math.round((halfWeight / totalWeightY) * Number(PRECISION))))
     }
   }
 

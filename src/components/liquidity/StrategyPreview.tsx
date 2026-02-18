@@ -3,7 +3,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import * as d3 from 'd3'
 import type { Distribution } from '@/lib/binMath'
-import { formatBinPrice } from '@/lib/binMath'
+import { formatBinPrice, getPriceFromBinId } from '@/lib/binMath'
 import { formatWei } from '@/lib/formatters'
 import type { BinData } from '@/hooks/useBinRange'
 
@@ -31,12 +31,18 @@ const MIN_BAR_PX = 3
 
 type Candle = {
   binId: number
+  // Raw amounts (for tooltips)
   existingX: number
   existingY: number
   addedX: number
   addedY: number
-  existing: number
-  added: number
+  // Normalized to Y-value (for bar heights — X amounts converted via bin price)
+  normExistingX: number
+  normExistingY: number
+  normAddedX: number
+  normAddedY: number
+  existing: number // normalized existing total
+  added: number    // normalized added total
   isAdding: boolean
 }
 
@@ -110,6 +116,9 @@ export function StrategyPreview({
     const viewMin = Math.max(0, startBin - extraPadding)
     const viewMax = Math.min(16_777_215, endBin + extraPadding)
 
+    // Use a single price (active bin) for normalization so equal shares = equal bars
+    const activePrice = getPriceFromBinId(activeBinId, binStep)
+
     const result: Candle[] = []
     for (let id = viewMin; id <= viewMax; id++) {
       const reserves = reserveMap.get(id)
@@ -119,19 +128,30 @@ export function StrategyPreview({
       const adX = add ? Number(add.addX) : 0
       const adY = add ? Number(add.addY) : 0
 
+      // Normalize X amounts to Y-equivalent using ACTIVE bin price (constant)
+      // so equal distribution shares produce equal bar heights
+      const normExX = exX * activePrice
+      const normExY = exY
+      const normAdX = adX * activePrice
+      const normAdY = adY
+
       result.push({
         binId: id,
         existingX: exX,
         existingY: exY,
         addedX: adX,
         addedY: adY,
-        existing: exX + exY,
-        added: adX + adY,
+        normExistingX: normExX,
+        normExistingY: normExY,
+        normAddedX: normAdX,
+        normAddedY: normAdY,
+        existing: normExX + normExY,
+        added: normAdX + normAdY,
         isAdding: addingSet.has(id),
       })
     }
     return result
-  }, [distribution, bins, amountX, amountY, startBin, endBin, extraPadding])
+  }, [distribution, bins, amountX, amountY, startBin, endBin, extraPadding, binStep])
 
   // Scroll-to-zoom
   const scrollAccum = useRef(0)
@@ -189,13 +209,15 @@ export function StrategyPreview({
 
     const container = svgRef.current.parentElement
     const width = container?.clientWidth ?? 500
-    const height = container?.clientHeight ? Math.max(container.clientHeight, 200) : 200
+    const rawH = container?.clientHeight ?? 0
+    const height = rawH > 50 ? rawH : 300
     const margin = { top: 8, right: 8, bottom: 64, left: 8 }
     const innerW = width - margin.left - margin.right
     const innerH = height - margin.top - margin.bottom
 
     const styles = getComputedStyle(document.documentElement)
     const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#f59e0b'
+    const activePrice = getPriceFromBinId(activeBinId, binStep)
 
     const COLOR_EXISTING_Y = '#0B5D1E'
     const COLOR_EXISTING_X = '#0a2912'
@@ -226,44 +248,44 @@ export function StrategyPreview({
         .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
         .attr('d', (d) => {
           if (d.existing <= 0) return roundedTopRect(x(d.binId)!, innerH - MIN_BAR_PX, bw, MIN_BAR_PX, BAR_RADIUS)
-          const h = innerH - y(d.existingY)
-          return roundedTopRect(x(d.binId)!, y(d.existingY), bw, h, BAR_RADIUS)
+          const h = innerH - y(d.normExistingY)
+          return roundedTopRect(x(d.binId)!, y(d.normExistingY), bw, h, BAR_RADIUS)
         })
 
       // Update existing-X
       g.selectAll<SVGPathElement, Candle>('.bar-existing-x')
-        .data(candles.filter((c) => c.existingX > 0), (d) => String(d.binId))
+        .data(candles.filter((c) => c.normExistingX > 0), (d) => String(d.binId))
         .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
         .attr('d', (d) => {
           const by = y(d.existing)
-          const h = y(d.existingY) - by
+          const h = y(d.normExistingY) - by
           return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
         })
 
-      // Update added-Y
+      // Update added-Y (from baseline = top of existing)
       g.selectAll<SVGPathElement, Candle>('.bar-added-y')
         .data(candles, (d) => String(d.binId))
         .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
         .attr('d', (d) => {
-          if (d.addedY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+          if (d.normAddedY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
           const baseTop = y(d.existing)
-          const addedYH = baseTop - y(d.existing + d.addedY)
-          return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+          const h = baseTop - y(d.existing + d.normAddedY)
+          return roundedTopRect(x(d.binId)!, baseTop - h, bw, Math.max(0, h), BAR_RADIUS)
         })
-        .attr('opacity', (d) => d.addedY > 0 ? 0.9 : 0)
+        .attr('opacity', (d) => d.normAddedY > 0 ? 0.9 : 0)
 
-      // Update added-X
+      // Update added-X (stacked on top of added-Y)
       g.selectAll<SVGPathElement, Candle>('.bar-added-x')
         .data(candles, (d) => String(d.binId))
         .transition().duration(UPDATE_DURATION).ease(UPDATE_EASE)
         .attr('d', (d) => {
-          if (d.addedX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+          if (d.normAddedX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
           const by = y(d.existing + d.added)
-          const topOfAddedY = y(d.existing + d.addedY)
+          const topOfAddedY = y(d.existing + d.normAddedY)
           const h = topOfAddedY - by
           return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
         })
-        .attr('opacity', (d) => d.addedX > 0 ? 0.9 : 0)
+        .attr('opacity', (d) => d.normAddedX > 0 ? 0.9 : 0)
 
       return
     }
@@ -317,24 +339,24 @@ export function StrategyPreview({
 
     const targetExistingY = (d: Candle) => {
       if (d.existing <= 0) return roundedTopRect(x(d.binId)!, innerH - MIN_BAR_PX, bw, MIN_BAR_PX, BAR_RADIUS)
-      const h = innerH - y(d.existingY)
-      return roundedTopRect(x(d.binId)!, y(d.existingY), bw, h, BAR_RADIUS)
+      const h = innerH - y(d.normExistingY)
+      return roundedTopRect(x(d.binId)!, y(d.normExistingY), bw, h, BAR_RADIUS)
     }
     const targetExistingX = (d: Candle) => {
       const by = y(d.existing)
-      const h = y(d.existingY) - by
+      const h = y(d.normExistingY) - by
       return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
     }
     const targetAddedY = (d: Candle) => {
-      if (d.addedY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+      if (d.normAddedY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
       const baseTop = y(d.existing)
-      const addedYH = baseTop - y(d.existing + d.addedY)
-      return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+      const h = baseTop - y(d.existing + d.normAddedY)
+      return roundedTopRect(x(d.binId)!, baseTop - h, bw, Math.max(0, h), BAR_RADIUS)
     }
     const targetAddedX = (d: Candle) => {
-      if (d.addedX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+      if (d.normAddedX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
       const by = y(d.existing + d.added)
-      const topOfAddedY = y(d.existing + d.addedY)
+      const topOfAddedY = y(d.existing + d.normAddedY)
       const h = topOfAddedY - by
       return roundedTopRect(x(d.binId)!, by, bw, Math.max(0, h), BAR_RADIUS)
     }
@@ -354,7 +376,7 @@ export function StrategyPreview({
         .attr('opacity', (d) => (d.existing > 0 ? 0.8 : 0.25))
 
       g.selectAll('.bar-existing-x')
-        .data(candles.filter((c) => c.existingX > 0), (d) => String((d as Candle).binId))
+        .data(candles.filter((c) => c.normExistingX > 0), (d) => String((d as Candle).binId))
         .enter().append('path').attr('class', 'bar-existing-x')
         .attr('d', (d) => roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS))
         .attr('fill', COLOR_EXISTING_X).attr('opacity', 0)
@@ -385,7 +407,7 @@ export function StrategyPreview({
         .attr('opacity', (d) => (d.existing > 0 ? 0.8 : 0.25))
 
       g.selectAll('.bar-existing-x')
-        .data(candles.filter((c) => c.existingX > 0), (d) => String((d as Candle).binId))
+        .data(candles.filter((c) => c.normExistingX > 0), (d) => String((d as Candle).binId))
         .enter().append('path').attr('class', 'bar-existing-x')
         .attr('d', targetExistingX).attr('fill', COLOR_EXISTING_X).attr('opacity', 0.8)
 
@@ -550,13 +572,16 @@ export function StrategyPreview({
         const newDist = distributionFnRef.current(newStart, newEnd)
         const curAmountX = amountXRef.current
         const curAmountY = amountYRef.current
-        const addMap = new Map<number, { addX: number; addY: number }>()
+        const addMap = new Map<number, { normAddX: number; normAddY: number; normTotal: number }>()
         for (let i = 0; i < newDist.binIds.length; i++) {
+          const binId = newDist.binIds[i]
           const dX = newDist.distributionX[i]
           const dY = newDist.distributionY[i]
-          const adX = Number((curAmountX * dX) / PRECISION)
-          const adY = Number((curAmountY * dY) / PRECISION)
-          addMap.set(newDist.binIds[i], { addX: adX, addY: adY })
+          const rawAdX = Number((curAmountX * dX) / PRECISION)
+          const rawAdY = Number((curAmountY * dY) / PRECISION)
+          const normAddX = rawAdX * activePrice
+          const normAddY = rawAdY
+          addMap.set(binId, { normAddX, normAddY, normTotal: normAddX + normAddY })
         }
 
         g.selectAll<SVGPathElement, Candle>('.bar-existing-y')
@@ -578,24 +603,24 @@ export function StrategyPreview({
           .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
           .attr('d', (d) => {
             const add = addMap.get(d.binId)
-            const adY = add?.addY ?? 0
+            const adY = add?.normAddY ?? 0
             if (adY <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
             const baseTop = y(d.existing)
-            const addedYH = baseTop - y(d.existing + adY)
-            return roundedTopRect(x(d.binId)!, baseTop - addedYH, bw, Math.max(0, addedYH), BAR_RADIUS)
+            const h = baseTop - y(d.existing + adY)
+            return roundedTopRect(x(d.binId)!, baseTop - h, bw, Math.max(0, h), BAR_RADIUS)
           })
           .attr('opacity', (d) => {
             const add = addMap.get(d.binId)
-            return (add?.addY ?? 0) > 0 ? 0.9 : 0
+            return (add?.normAddY ?? 0) > 0 ? 0.9 : 0
           })
 
-        // Update added-X bar geometry and opacity
+        // Update added-X bar geometry and opacity (stacked on top of added-Y)
         g.selectAll<SVGPathElement, Candle>('.bar-added-x')
           .transition().duration(DRAG_DURATION).ease(DRAG_EASE)
           .attr('d', (d) => {
             const add = addMap.get(d.binId)
-            const adX = add?.addX ?? 0
-            const adY = add?.addY ?? 0
+            const adX = add?.normAddX ?? 0
+            const adY = add?.normAddY ?? 0
             if (adX <= 0) return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
             const totalAdded = adX + adY
             const by = y(d.existing + totalAdded)
@@ -605,7 +630,7 @@ export function StrategyPreview({
           })
           .attr('opacity', (d) => {
             const add = addMap.get(d.binId)
-            return (add?.addX ?? 0) > 0 ? 0.9 : 0
+            return (add?.normAddX ?? 0) > 0 ? 0.9 : 0
           })
       }
 
@@ -683,7 +708,7 @@ export function StrategyPreview({
           </span>
         </div>
       </div>
-      <div className="relative cursor-ns-resize flex-1 min-h-0">
+      <div className="relative cursor-ns-resize flex-1" style={{ minHeight: 250 }}>
         <svg ref={svgRef} className="w-full h-full" preserveAspectRatio="xMidYMid meet" />
         {extraPadding > 0 && (
           <div className="absolute top-1 right-1 text-[10px] text-text-muted bg-surface-overlay/80 px-1.5 py-0.5 rounded">
