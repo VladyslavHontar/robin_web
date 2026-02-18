@@ -2,8 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { isAddress, type Address } from 'viem'
+import { useReadContract } from 'wagmi'
 import { useCreatePair, useComputePairAddress } from '@/hooks/useCreatePair'
 import { useValidateToken } from '@/hooks/useValidateToken'
+import { lbFactoryAbi } from '@/config/abis/LBFactory'
+import { getContracts } from '@/config/contracts'
+import { robinhoodTestnet } from '@/config/chains'
 
 const BIN_STEPS = [
   { value: 10,  label: '10bp — Ultra-tight (0.1%)', description: 'Large-cap stocks (AAPL, MSFT)' },
@@ -53,13 +57,29 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
   const validationA = useValidateToken(tokenA)
   const validationB = useValidateToken(tokenB)
 
+  const { factory } = getContracts(robinhoodTestnet.id)
+
   const validA = isAddress(tokenA)
   const validB = isAddress(tokenB)
   const isDuplicate = validA && validB && tokenA.toLowerCase() === tokenB.toLowerCase()
+
+  // Check on-chain whether this pair already exists
+  const { data: existingPair } = useReadContract({
+    address: factory,
+    abi: lbFactoryAbi,
+    functionName: 'getPair',
+    args: validA && validB && !isDuplicate ? [tokenA as Address, tokenB as Address, binStep] : undefined,
+    query: { enabled: validA && validB && !isDuplicate },
+    chainId: robinhoodTestnet.id,
+  })
+
+  const pairAlreadyExists =
+    !!existingPair && existingPair !== '0x0000000000000000000000000000000000000000'
+
   const canSubmit =
     validA && validB &&
     validationA.isValid && validationB.isValid &&
-    !isDuplicate && !isLoading
+    !isDuplicate && !pairAlreadyExists && !isLoading
 
   // Derived address shown to user before they create the pool
   const { data: predicted } = useComputePairAddress(
@@ -74,12 +94,23 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
     await createPair({ tokenA: tokenA as Address, tokenB: tokenB as Address, binStep })
   }
 
-  // Notify parent when pair is created
+  // Persist pool to DB and notify parent when pair is created
   useEffect(() => {
-    if (isSuccess && newPairAddress && onCreated) {
-      onCreated(newPairAddress)
+    if (isSuccess && newPairAddress) {
+      fetch('/api/pools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pairAddress: newPairAddress,
+          tokenX: tokenA,
+          tokenY: tokenB,
+          binStep,
+        }),
+      }).catch(() => {}) // best-effort persist
+
+      onCreated?.(newPairAddress)
     }
-  }, [isSuccess, newPairAddress, onCreated])
+  }, [isSuccess, newPairAddress, onCreated, tokenA, tokenB, binStep])
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -140,6 +171,14 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
             </div>
           )}
 
+          {/* Pool already exists warning */}
+          {pairAlreadyExists && !isDuplicate && (
+            <div className="bg-warning/10 border border-warning/20 rounded-lg p-3 space-y-1">
+              <p className="text-xs text-warning font-medium">Pool already exists</p>
+              <p className="text-xs font-mono text-warning/80 break-all">{existingPair}</p>
+            </div>
+          )}
+
           {/* Bin step */}
           <div>
             <label className="block text-sm text-text-secondary mb-2">Bin step (price granularity)</label>
@@ -166,9 +205,8 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
           {/* Predicted address */}
           {predicted && predicted !== '0x0000000000000000000000000000000000000000' && !isDuplicate && (
             <div className="bg-surface-overlay rounded-lg p-3">
-              <p className="text-xs text-text-secondary mb-1">Predicted pool address</p>
+              <p className="text-xs text-text-secondary mb-1">Pool address</p>
               <p className="text-xs font-mono text-accent break-all">{predicted}</p>
-              <p className="text-xs text-text-muted mt-1">Computed offline — no chain query needed</p>
             </div>
           )}
 
