@@ -216,13 +216,13 @@ export function StrategyPreview({
     const innerH = height - margin.top - margin.bottom
 
     const styles = getComputedStyle(document.documentElement)
-    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#f59e0b'
+    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#76fff4'
+    const COLOR_ADDED_X = styles.getPropertyValue('--color-reserve-x').trim() || '#0DAB76'
+    const COLOR_ADDED_Y = styles.getPropertyValue('--color-reserve-y').trim() || '#139A43'
     const activePrice = getPriceFromBinId(activeBinId, binStep)
 
-    const COLOR_EXISTING_Y = '#0B5D1E'
-    const COLOR_EXISTING_X = '#0a2912'
-    const COLOR_ADDED_Y = '#139A43'
-    const COLOR_ADDED_X = '#0DAB76'
+    const COLOR_EXISTING_Y = COLOR_ADDED_Y
+    const COLOR_EXISTING_X = COLOR_ADDED_X
     const COLOR_DESELECTED = '#040f07'
 
     // Check if domain (visible bins) changed — if not, do in-place update
@@ -695,11 +695,11 @@ export function StrategyPreview({
         <span className="text-xs text-text-muted">Liquidity Preview</span>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 text-[10px] text-text-muted">
-            <span className="inline-block w-2 h-2 rounded-sm bg-[#0a2912]" />
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-x)' }} />
             {tokenXSymbol}
           </span>
           <span className="flex items-center gap-1 text-[10px] text-text-muted">
-            <span className="inline-block w-2 h-2 rounded-sm bg-[#0B5D1E]" />
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-y)' }} />
             {tokenYSymbol}
           </span>
           <span className="flex items-center gap-1 text-[10px] text-text-muted">

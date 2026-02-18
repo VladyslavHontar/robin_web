@@ -21,9 +21,6 @@ function roundedTopRect(bx: number, by: number, w: number, h: number, r: number)
   ].join(' ')
 }
 
-const COLOR_Y = '#0B5D1E'
-const COLOR_X = '#0a2912'
-
 export function BinChart({
   bins,
   activeId,
@@ -55,7 +52,9 @@ export function BinChart({
     svg.attr('viewBox', `0 0 ${width} ${height}`)
 
     const styles = getComputedStyle(document.documentElement)
-    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#f59e0b'
+    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#76fff4'
+    const COLOR_X = styles.getPropertyValue('--color-reserve-x').trim() || '#0DAB76'
+    const COLOR_Y = styles.getPropertyValue('--color-reserve-y').trim() || '#139A43'
 
     const g = svg
       .append('g')
@@ -197,10 +196,10 @@ export function BinChart({
         <h3 className="text-sm font-medium text-text-secondary">Bin Liquidity Distribution</h3>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR_X }} /> {tokenXSymbol}
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-x)' }} /> {tokenXSymbol}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR_Y }} /> {tokenYSymbol}
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-y)' }} /> {tokenYSymbol}
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-active-bin" /> Active
