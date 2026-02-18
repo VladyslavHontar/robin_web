@@ -29,13 +29,6 @@ export const lbPairAbi = [
   },
   {
     type: 'function',
-    name: 'compliance',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
     name: 'oracle',
     inputs: [],
     outputs: [{ name: '', type: 'address' }],
