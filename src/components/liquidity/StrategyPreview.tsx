@@ -7,6 +7,9 @@ import { formatBinPrice, getPriceFromBinId } from '@/lib/binMath'
 import { formatWei } from '@/lib/formatters'
 import type { BinData } from '@/hooks/useBinRange'
 
+/** Per-bin overlay fraction (0–1 of that bin's reserve to highlight) */
+export type OverlayBin = { binId: number; fractionX: number; fractionY: number }
+
 type StrategyPreviewProps = {
   distribution: Distribution
   activeBinId: number
@@ -21,6 +24,12 @@ type StrategyPreviewProps = {
   tokenXSymbol: string
   tokenYSymbol: string
   distributionFn: (startBin: number, endBin: number) => Distribution
+  /** Optional overlay — shown as a highlight on top of existing bars */
+  overlayBins?: OverlayBin[]
+  /** CSS color for the overlay (hex or CSS var value). Default: error red */
+  overlayColor?: string
+  /** Legend label for the overlay (e.g. "to remove", "consumed") */
+  overlayLabel?: string
 }
 
 const PRECISION = 10n ** 18n
@@ -41,6 +50,8 @@ type Candle = {
   normExistingY: number
   normAddedX: number
   normAddedY: number
+  normOverlayX: number  // fraction of normExistingX to highlight
+  normOverlayY: number  // fraction of normExistingY to highlight
   existing: number // normalized existing total
   added: number    // normalized added total
   isAdding: boolean
@@ -75,11 +86,15 @@ export function StrategyPreview({
   tokenXSymbol,
   tokenYSymbol,
   distributionFn,
+  overlayBins,
+  overlayColor = '#ef4444',
+  overlayLabel,
 }: StrategyPreviewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const tooltipRef = useRef<d3.Selection<HTMLDivElement, unknown, null, undefined> | null>(null)
   const prevDomainRef = useRef<string>('')
   const hasRenderedRef = useRef(false)
+  const prevEditableRef = useRef(editable)
   const distributionFnRef = useRef(distributionFn)
   distributionFnRef.current = distributionFn
   const amountXRef = useRef(amountX)
@@ -87,6 +102,7 @@ export function StrategyPreview({
   const amountYRef = useRef(amountY)
   amountYRef.current = amountY
   const [extraPadding, setExtraPadding] = useState(DEFAULT_PADDING)
+  const [renderTick, setRenderTick] = useState(0)
 
   // Build candle data
   const candles = useMemo(() => {
@@ -119,6 +135,10 @@ export function StrategyPreview({
     // Use a single price (active bin) for normalization so equal shares = equal bars
     const activePrice = getPriceFromBinId(activeBinId, binStep)
 
+    // Build overlay lookup
+    const overlayMap = new Map<number, OverlayBin>()
+    if (overlayBins) for (const o of overlayBins) overlayMap.set(o.binId, o)
+
     const result: Candle[] = []
     for (let id = viewMin; id <= viewMax; id++) {
       const reserves = reserveMap.get(id)
@@ -134,6 +154,10 @@ export function StrategyPreview({
       const normAdX = adX * activePrice
       const normAdY = adY
 
+      const ov = overlayMap.get(id)
+      const normOvX = ov ? normExX * ov.fractionX : 0
+      const normOvY = ov ? normExY * ov.fractionY : 0
+
       result.push({
         binId: id,
         existingX: exX,
@@ -144,13 +168,15 @@ export function StrategyPreview({
         normExistingY: normExY,
         normAddedX: normAdX,
         normAddedY: normAdY,
+        normOverlayX: normOvX,
+        normOverlayY: normOvY,
         existing: normExX + normExY,
         added: normAdX + normAdY,
         isAdding: addingSet.has(id),
       })
     }
     return result
-  }, [distribution, bins, amountX, amountY, startBin, endBin, extraPadding, binStep])
+  }, [distribution, bins, amountX, amountY, startBin, endBin, extraPadding, binStep, overlayBins])
 
   // Scroll-to-zoom
   const scrollAccum = useRef(0)
@@ -175,6 +201,26 @@ export function StrategyPreview({
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, [handleWheel])
+
+  // Force full D3 rebuild when container first gets real pixel dimensions.
+  // Without this, clientWidth=0 on first paint → bars render at zero size and
+  // CSS variable colors are never applied correctly.
+  useEffect(() => {
+    const el = svgRef.current?.parentElement
+    if (!el) return
+    let lastWidth = 0
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      if (w > 0 && w !== lastWidth) {
+        lastWidth = w
+        prevDomainRef.current = ''
+        hasRenderedRef.current = false
+        setRenderTick((k) => k + 1)
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // Store scale ref for drag handler
   const xScaleRef = useRef<d3.ScaleBand<number> | null>(null)
@@ -226,6 +272,14 @@ export function StrategyPreview({
     const EXIST_OPACITY      = isAdding ? 0.2  : 0.8
     const EXIST_OPACITY_EMPTY = isAdding ? 0.12 : 0.25
 
+    // If editability changed (e.g. switching to/from Swap mode), force a full
+    // rebuild so handles are added or removed from the SVG DOM correctly.
+    if (prevEditableRef.current !== editable) {
+      prevEditableRef.current = editable
+      prevDomainRef.current = ''
+      hasRenderedRef.current = false
+    }
+
     // Check if domain (visible bins) changed
     const domainKey = candles.map((c) => c.binId).join(',')
     const domainChanged = domainKey !== prevDomainRef.current
@@ -269,6 +323,26 @@ export function StrategyPreview({
       return roundedTopRect(x(d.binId)!, y(totalYExX + d.normAddedX), bw, Math.max(0, h), BAR_RADIUS)
     }
 
+    // Overlay — top portion of existing bars, colored distinctly
+    const targetOverlayY = (d: Candle) => {
+      if (d.normOverlayY <= 0 || d.normExistingY <= 0)
+        return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+      const topY = y(d.normExistingY)
+      const h = Math.max(0, y(d.normExistingY - d.normOverlayY) - topY)
+      return roundedTopRect(x(d.binId)!, topY, bw, h, BAR_RADIUS)
+    }
+
+    const targetOverlayX = (d: Candle) => {
+      if (d.normOverlayX <= 0 || d.normExistingX <= 0)
+        return roundedTopRect(x(d.binId)!, innerH, bw, 0, BAR_RADIUS)
+      const totalY = d.normExistingY + d.normAddedY
+      const topOfX = y(totalY + d.normExistingX)
+      const h = Math.max(0, y(totalY + d.normExistingX - d.normOverlayX) - topOfX)
+      return roundedTopRect(x(d.binId)!, topOfX, bw, h, BAR_RADIUS)
+    }
+
+    const COLOR_OVERLAY = overlayColor
+
     // Hack: x and bw are needed in targetExistingY etc but only defined after domain check.
     // We define a placeholder and set it properly in each branch.
     let x: d3.ScaleBand<number>
@@ -309,6 +383,22 @@ export function StrategyPreview({
         .transition().duration(DUR).ease(EASE)
         .attr('d', targetAddedX)
         .attr('opacity', (d) => d.normAddedX > 0 ? 0.9 : 0)
+
+      // 5. overlay-Y (also update fill in case overlayColor changed between modes)
+      g.selectAll<SVGPathElement, Candle>('.bar-overlay-y')
+        .data(candles, (d) => String(d.binId))
+        .attr('fill', COLOR_OVERLAY)
+        .transition().duration(DUR).ease(EASE)
+        .attr('d', targetOverlayY)
+        .attr('opacity', (d) => d.normOverlayY > 0 ? 0.75 : 0)
+
+      // 6. overlay-X
+      g.selectAll<SVGPathElement, Candle>('.bar-overlay-x')
+        .data(candles, (d) => String(d.binId))
+        .attr('fill', COLOR_OVERLAY)
+        .transition().duration(DUR).ease(EASE)
+        .attr('d', targetOverlayX)
+        .attr('opacity', (d) => d.normOverlayX > 0 ? 0.75 : 0)
 
       return
     }
@@ -399,6 +489,24 @@ export function StrategyPreview({
         .attr('d', targetAddedX)
         .attr('opacity', (d) => d.normAddedX > 0 ? 0.9 : 0)
 
+      // 5. overlay-Y
+      g.selectAll('.bar-overlay-y')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-overlay-y')
+        .attr('d', zeroBar).attr('fill', COLOR_OVERLAY).attr('opacity', 0)
+        .transition().duration(DUR).ease(EASE)
+        .attr('d', targetOverlayY)
+        .attr('opacity', (d) => d.normOverlayY > 0 ? 0.75 : 0)
+
+      // 6. overlay-X
+      g.selectAll('.bar-overlay-x')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-overlay-x')
+        .attr('d', zeroBar).attr('fill', COLOR_OVERLAY).attr('opacity', 0)
+        .transition().duration(DUR).ease(EASE)
+        .attr('d', targetOverlayX)
+        .attr('opacity', (d) => d.normOverlayX > 0 ? 0.75 : 0)
+
     } else {
       // Zoom rebuild — instant placement
 
@@ -429,6 +537,20 @@ export function StrategyPreview({
         .enter().append('path').attr('class', 'bar-added-x')
         .attr('d', targetAddedX).attr('fill', COLOR_ADDED_X)
         .attr('opacity', (d) => d.normAddedX > 0 ? 0.9 : 0)
+
+      // 5. overlay-Y
+      g.selectAll('.bar-overlay-y')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-overlay-y')
+        .attr('d', targetOverlayY).attr('fill', COLOR_OVERLAY)
+        .attr('opacity', (d) => d.normOverlayY > 0 ? 0.75 : 0)
+
+      // 6. overlay-X
+      g.selectAll('.bar-overlay-x')
+        .data(candles, (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bar-overlay-x')
+        .attr('d', targetOverlayX).attr('fill', COLOR_OVERLAY)
+        .attr('opacity', (d) => d.normOverlayX > 0 ? 0.75 : 0)
     }
 
     // Active bin marker
@@ -569,12 +691,18 @@ export function StrategyPreview({
         }
 
         // existing-Y
+        // In add mode: dim bins outside the range (they won't receive liquidity).
+        // In remove mode (isAdding=false): all existing bins stay at full opacity —
+        // only the overlay (red) indicates what will be removed.
         g.selectAll<SVGPathElement, Candle>('.bar-existing-y')
           .transition().duration(DRAG_DUR).ease(DRAG_EASE)
-          .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_Y : COLOR_DESELECTED)
+          .attr('fill', (d) => {
+            if (!isAdding) return COLOR_EXISTING_Y
+            return (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_Y : COLOR_DESELECTED
+          })
           .attr('opacity', (d) => {
             const inRange = d.binId >= newStart && d.binId <= newEnd
-            if (!inRange) return 0.08
+            if (!inRange && isAdding) return 0.08
             return d.existing > 0 ? EXIST_OPACITY : EXIST_OPACITY_EMPTY
           })
 
@@ -593,8 +721,14 @@ export function StrategyPreview({
         // existing-X (on top of all Y)
         g.selectAll<SVGPathElement, Candle>('.bar-existing-x')
           .transition().duration(DRAG_DUR).ease(DRAG_EASE)
-          .attr('fill', (d) => (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_X : COLOR_DESELECTED)
-          .attr('opacity', (d) => (d.binId >= newStart && d.binId <= newEnd) ? EXIST_OPACITY : 0.08)
+          .attr('fill', (d) => {
+            if (!isAdding) return COLOR_EXISTING_X
+            return (d.binId >= newStart && d.binId <= newEnd) ? COLOR_EXISTING_X : COLOR_DESELECTED
+          })
+          .attr('opacity', (d) => {
+            if (!isAdding) return EXIST_OPACITY
+            return (d.binId >= newStart && d.binId <= newEnd) ? EXIST_OPACITY : 0.08
+          })
 
         // added-X (on top of existing-X)
         g.selectAll<SVGPathElement, Candle>('.bar-added-x')
@@ -609,6 +743,22 @@ export function StrategyPreview({
             return roundedTopRect(x(d.binId)!, y(totalYExX + adX), bw, Math.max(0, h), BAR_RADIUS)
           })
           .attr('opacity', (d) => (addMap.get(d.binId)?.normAddX ?? 0) > 0 ? 0.9 : 0)
+
+        // overlay-Y — hide on bins that just left the selected range
+        g.selectAll<SVGPathElement, Candle>('.bar-overlay-y')
+          .transition().duration(DRAG_DUR).ease(DRAG_EASE)
+          .attr('opacity', (d) => {
+            if (d.binId < newStart || d.binId > newEnd) return 0
+            return d.normOverlayY > 0 ? 0.75 : 0
+          })
+
+        // overlay-X — hide on bins that just left the selected range
+        g.selectAll<SVGPathElement, Candle>('.bar-overlay-x')
+          .transition().duration(DRAG_DUR).ease(DRAG_EASE)
+          .attr('opacity', (d) => {
+            if (d.binId < newStart || d.binId > newEnd) return 0
+            return d.normOverlayX > 0 ? 0.75 : 0
+          })
       }
 
       const dragLeft = d3.drag<SVGGElement, unknown>()
@@ -645,7 +795,7 @@ export function StrategyPreview({
       rightHandle.call(dragRight as never)
     }
 
-  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange, tokenXSymbol, tokenYSymbol])
+  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange, tokenXSymbol, tokenYSymbol, overlayColor, renderTick])
 
   // Tooltip cleanup on unmount
   useEffect(() => {
@@ -656,8 +806,6 @@ export function StrategyPreview({
       }
     }
   }, [])
-
-  if (candles.length === 0) return null
 
   const totalBins = endBin - startBin + 1
 
@@ -676,14 +824,27 @@ export function StrategyPreview({
             <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-y)' }} />
             {tokenYSymbol}
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-text-muted">
-            pool · your deposit
-          </span>
+          {overlayLabel ? (
+            <span className="flex items-center gap-1 text-[10px] text-text-muted">
+              <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: overlayColor }} />
+              {overlayLabel}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-[10px] text-text-muted">
+              pool · your deposit
+            </span>
+          )}
         </div>
       </div>
       <div className="relative cursor-ns-resize flex-1" style={{ minHeight: 250 }}>
+        {/* SVG is always in the DOM so the ResizeObserver can attach before bin data arrives */}
         <svg ref={svgRef} className="w-full h-full" preserveAspectRatio="xMidYMid meet" />
-        {extraPadding > 0 && (
+        {candles.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-xs text-text-muted">Loading…</span>
+          </div>
+        )}
+        {extraPadding > 0 && candles.length > 0 && (
           <div className="absolute top-1 right-1 text-[10px] text-text-muted bg-surface-overlay/80 px-1.5 py-0.5 rounded">
             {candles.length} bins shown
           </div>
