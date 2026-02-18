@@ -91,6 +91,14 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
     if (requiredTokens === 'onlyY' && amountX !== '') setAmountX('')
   }, [requiredTokens, amountX, amountY])
 
+  // Clear inputs after successful transaction
+  useEffect(() => {
+    if (isSuccess) {
+      setAmountX('')
+      setAmountY('')
+    }
+  }, [isSuccess])
+
   const handleRangeChange = useCallback((newStart: number, newEnd: number) => {
     const clampedStart = Math.max(0, newStart)
     const clampedEnd = Math.min(16_777_215, newEnd)
