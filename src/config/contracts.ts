@@ -11,21 +11,21 @@ type ContractAddresses = {
 
 export const contracts: Record<number, ContractAddresses> = {
   46630: {
-    factory: '0x30f8819710611d80Ce22d57947223F33C2fe8C9E',
-    router: '0x7A112f26C32763B1b774899668EEfd3E0DF06447',
-    compliance: '0xEFb56C901723c03DcddC8Bf38e2737d58D71c26B',
-    identityRegistry: '0x40e9724795d9E14668e76455622017a5a3Ffb745',
-    weth: '0xD01e5E257ea5014E92BDD5b746eD63815Ee8ffD4',
-    oracleModule: '0x0000000000000000000000000000000000000000', // resolved dynamically from factory
+    factory:          '0x10f73A2baaB77e09a7232072aD4b7D555e96E007',
+    router:           '0xB7996C2Ef83DEE347eCaBFF5D91DAFe621e08d27',
+    compliance:       '0x3e67F31Cb6AA5cC90eC6cC49cd0dC3466B63fefe',
+    identityRegistry: '0xCDD97ff1caec48a873F2C2857D618BB037ad0309',
+    weth:             '0x0000000000000000000000000000000000000000', // not deployed in this run
+    oracleModule:     '0xDa699653308e9bd81F0b054C8Eae761d71d7bD75',
   },
 }
 
 export const knownTokens: Record<number, Record<Address, { symbol: string; name: string; decimals: number }>> = {
   46630: {
-    '0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02': { symbol: 'AMZN', name: 'Amazon', decimals: 18 },
-    '0x71178BAc73cBeb415514eB542a8995b82669778d': { symbol: 'AMD', name: 'AMD', decimals: 18 },
-    '0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93': { symbol: 'NFLX', name: 'Netflix', decimals: 18 },
-    '0xD01e5E257ea5014E92BDD5b746eD63815Ee8ffD4': { symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+    '0xA330Cd21E019470F968b0a3B919Ca17f956b6046': { symbol: 'USDC',  name: 'USD Coin',            decimals: 6  },
+    '0x69878eb8eb1f0395d20344eb5AA84ac3CBE7f7E3': { symbol: 'AAPL',  name: 'Apple Stock Token',    decimals: 18 },
+    '0xEe18645194eF458EC0B19BE95aBc41EeAe15856E': { symbol: 'TSLA',  name: 'Tesla Stock Token',    decimals: 18 },
+    '0x1FCE42667B5B0a1BAB18d58f63881FD5F1DfEAff': { symbol: 'MSFT',  name: 'Microsoft Stock Token',decimals: 18 },
   },
 }
 

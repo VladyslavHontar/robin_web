@@ -67,6 +67,8 @@ export default function PoolDetailPage({
           bins={bins}
           activeId={pairState.activeId}
           binStep={pairState.binStep}
+          tokenXSymbol={tokenX?.symbol ?? '??'}
+          tokenYSymbol={tokenY?.symbol ?? '??'}
         />
       )}
 
@@ -91,6 +93,8 @@ export default function PoolDetailPage({
         bins={bins}
         activeId={pairState.activeId}
         binStep={pairState.binStep}
+        tokenXSymbol={tokenX?.symbol ?? '??'}
+        tokenYSymbol={tokenY?.symbol ?? '??'}
       />
     </div>
   )
