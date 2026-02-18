@@ -3,7 +3,6 @@ import type { TokenMetadata } from '@/hooks/useTokenMetadata'
 import type { OracleData } from '@/hooks/useOracleData'
 import type { BinData } from '@/hooks/useBinRange'
 import { BinMiniChart } from '@/components/bins/BinMiniChart'
-import { CopyAddress } from '@/components/shared/CopyAddress'
 import { Badge } from '@/components/shared/Badge'
 import { TokenIcon } from '@/components/shared/TokenIcon'
 import { formatBinPrice, getBinStepTier } from '@/lib/binMath'
@@ -12,16 +11,16 @@ import { robinhoodTestnet } from '@/config/chains'
 
 const EXPLORER = robinhoodTestnet.blockExplorers!.default.url
 
-function ExternalLink({ href }: { href: string }) {
+function AddressLink({ address }: { address: string }) {
   return (
     <a
-      href={href}
+      href={`${EXPLORER}/address/${address}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-text-muted hover:text-accent transition-colors"
-      title="View on explorer"
+      className="font-mono text-xs text-text-primary hover:text-accent transition-colors"
+      title={address}
     >
-      ↗
+      {truncateAddress(address, 6)}
     </a>
   )
 }
@@ -100,19 +99,9 @@ export function PoolInfoBlock({
             <Badge variant="accent">{tier} · {pairState.binStep}bp</Badge>
           </div>
 
-          <InfoRow label="Pool">
-            {truncateAddress(pairState.address, 6)}
-            <CopyAddress address={pairState.address} iconOnly />
-            <ExternalLink href={`${EXPLORER}/address/${pairState.address}`} />
-          </InfoRow>
-          <InfoRow label={symbolX}>
-            {truncateAddress(pairState.tokenX, 6)}
-            <ExternalLink href={`${EXPLORER}/address/${pairState.tokenX}`} />
-          </InfoRow>
-          <InfoRow label={symbolY}>
-            {truncateAddress(pairState.tokenY, 6)}
-            <ExternalLink href={`${EXPLORER}/address/${pairState.tokenY}`} />
-          </InfoRow>
+          <InfoRow label="Pool"><AddressLink address={pairState.address} /></InfoRow>
+          <InfoRow label={symbolX}><AddressLink address={pairState.tokenX} /></InfoRow>
+          <InfoRow label={symbolY}><AddressLink address={pairState.tokenY} /></InfoRow>
           <InfoRow label="Active Bin">{pairState.activeId}</InfoRow>
           <InfoRow label="Price">{price}</InfoRow>
         </div>
