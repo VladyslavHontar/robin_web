@@ -43,7 +43,6 @@ function PercentageSlider({
     onChange(clamped)
   }
 
-  // Fraction 0–1 used for the track gradient
   const pct = ((value - 1) / 99) * 100
 
   return (
@@ -75,7 +74,6 @@ function PercentageSlider({
         }}
         className={[
           'w-full h-1 rounded-full appearance-none cursor-pointer outline-none',
-          // webkit thumb
           '[&::-webkit-slider-thumb]:appearance-none',
           '[&::-webkit-slider-thumb]:w-[14px]',
           '[&::-webkit-slider-thumb]:h-[14px]',
@@ -88,7 +86,6 @@ function PercentageSlider({
           '[&::-webkit-slider-thumb:active]:cursor-grabbing',
           '[&::-webkit-slider-thumb:active]:shadow-[0_0_0_3px_rgba(13,171,118,0.35)]',
           '[&::-webkit-slider-thumb:hover]:shadow-[0_0_0_3px_rgba(13,171,118,0.25)]',
-          // firefox thumb
           '[&::-moz-range-thumb]:w-[14px]',
           '[&::-moz-range-thumb]:h-[14px]',
           '[&::-moz-range-thumb]:rounded-full',
@@ -106,10 +103,9 @@ type Props = {
   pairState: PairState
   tokenXSymbol: string
   tokenYSymbol: string
-  /** Positions fetched by parent (for overlay + reuse) */
+  /** Range-filtered positions (used for removal) */
   positions: UserPosition[]
   isPositionsLoading: boolean
-  /** Controlled percentage (lifted to parent for chart overlay) */
   percentage: number
   onPercentageChange: (p: number) => void
 }
@@ -125,7 +121,6 @@ export function RemoveLiquidityPanel({
 }: Props) {
   const { removeLiquidity, isPending, isSuccess, error, txHash, reset } = useRemoveLiquidity()
 
-  // Reset to 100% after success
   useEffect(() => {
     if (isSuccess) onPercentageChange(100)
   }, [isSuccess, onPercentageChange])
@@ -142,7 +137,11 @@ export function RemoveLiquidityPanel({
   }
 
   if (!hasPositions) {
-    return <p className="text-sm text-text-muted">You have no liquidity in this pool.</p>
+    return (
+      <p className="text-sm text-text-muted">
+        No positions in the selected bin range. Drag the handles to include your bins.
+      </p>
+    )
   }
 
   return (
