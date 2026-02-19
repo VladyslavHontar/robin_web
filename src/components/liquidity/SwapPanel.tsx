@@ -8,7 +8,9 @@ import { useSwapQuote } from '@/hooks/useSwapQuote'
 import { useSwap } from '@/hooks/useSwap'
 import { getContracts } from '@/config/contracts'
 import { robinhoodTestnet } from '@/config/chains'
+import { getPriceFromBinId, formatBinPrice } from '@/lib/binMath'
 import type { PairState } from '@/hooks/usePairState'
+import type { BinData } from '@/hooks/useBinRange'
 
 const EXPLORER = robinhoodTestnet.blockExplorers!.default.url
 
@@ -44,21 +46,97 @@ function fmtRate(amountIn: bigint, amountOut: bigint): string {
   return rate.toLocaleString('en-US', { maximumFractionDigits: 6 })
 }
 
+// ── Bin impact simulation ────────────────────────────────────────────────────
+
+type BinImpact = {
+  binId: number
+  /** How much of the input token is deposited into this bin */
+  amountIn: bigint
+  /** How much of the output token is withdrawn from this bin */
+  amountOut: bigint
+  /** Fraction of the bin's output reserve that is consumed (0–1) */
+  fractionConsumed: number
+  isActive: boolean
+  isFullyDrained: boolean
+}
+
+/**
+ * Constant-sum DLMM swap simulation.
+ * For each bin the price converts between token directions, giving accurate
+ * per-bin amountIn / amountOut values (pre-fee approximation, good enough for display).
+ */
+function simulateSwapImpact(
+  bins: BinData[],
+  activeBinId: number,
+  binStep: number,
+  swapForY: boolean,
+  amountIn: bigint,
+  totalAmountOut: bigint,
+): BinImpact[] {
+  if (amountIn <= 0n || bins.length === 0 || totalAmountOut <= 0n) return []
+
+  // swapForY=true : selling tokenX → consuming Y reserves, active bin and below
+  // swapForY=false: selling tokenY → consuming X reserves, active bin and above
+  const ordered = swapForY
+    ? [...bins].sort((a, b) => b.binId - a.binId).filter((b) => b.binId <= activeBinId)
+    : [...bins].sort((a, b) => a.binId - b.binId).filter((b) => b.binId >= activeBinId)
+
+  let remainingIn = Number(amountIn)
+  const raw: Array<{ binId: number; rawIn: number; rawOut: number; reserveOut: number; isActive: boolean }> = []
+
+  for (const bin of ordered) {
+    // price = tokenY per tokenX for this bin
+    const price = getPriceFromBinId(bin.binId, binStep)
+
+    // How much input can this bin absorb before its output reserve is exhausted?
+    const reserveOut = Number(swapForY ? bin.reserveY : bin.reserveX)
+    if (reserveOut <= 0) continue
+    const maxIn = swapForY ? reserveOut / price : reserveOut * price
+
+    const consumedIn  = Math.min(remainingIn, maxIn)
+    const consumedOut = swapForY ? consumedIn * price : consumedIn / price
+
+    raw.push({ binId: bin.binId, rawIn: consumedIn, rawOut: consumedOut, reserveOut, isActive: bin.binId === activeBinId })
+    remainingIn -= consumedIn
+    if (remainingIn < 1) break // epsilon: 1 wei
+  }
+
+  if (raw.length === 0) return []
+
+  // Scale amountOut values so their sum matches the on-chain quote (fees included)
+  const estimatedTotalOut = raw.reduce((s, r) => s + r.rawOut, 0)
+  const outScale = estimatedTotalOut > 0 ? Number(totalAmountOut) / estimatedTotalOut : 1
+
+  return raw.map((r, i) => {
+    const scaledOut = BigInt(Math.round(r.rawOut * outScale))
+    const fractionConsumed = r.rawIn / (swapForY ? r.reserveOut / getPriceFromBinId(r.binId, binStep) : r.reserveOut * getPriceFromBinId(r.binId, binStep))
+    return {
+      binId: r.binId,
+      amountIn: BigInt(Math.round(r.rawIn)),
+      amountOut: scaledOut,
+      fractionConsumed: Math.min(1, fractionConsumed),
+      isActive: r.isActive,
+      isFullyDrained: i < raw.length - 1 || fractionConsumed > 0.999,
+    }
+  })
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
 type Props = {
   pairState: PairState
   tokenXSymbol: string
   tokenYSymbol: string
-  /** Called whenever direction or input amount changes — used by parent for chart overlay */
+  bins: BinData[]
   onSwapChange?: (swapForY: boolean, amountIn: bigint) => void
 }
 
-export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, onSwapChange }: Props) {
+export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapChange }: Props) {
   const [tokenInIsX, setTokenInIsX] = useState(true)
   const [amountIn, setAmountIn] = useState('')
   const [slippage, setSlippage] = useState(0.5)
   const [offMarket, setOffMarket] = useState(!isMarketHours())
 
-  // Refresh off-market status every minute
   useEffect(() => {
     const id = setInterval(() => setOffMarket(!isMarketHours()), 60_000)
     return () => clearInterval(id)
@@ -92,25 +170,36 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, onSwapChange 
   const needsApproval = parsedAmountIn > 0n && approval.needsApproval(parsedAmountIn)
   const canSwap = parsedAmountIn > 0n && amountOut > 0n && !needsApproval && !isPending
 
-  // Clear after success
+  // Per-bin impact simulation (only when quote is ready)
+  const binImpact = useMemo(() => {
+    if (quoteLoading || amountOut <= 0n) return []
+    return simulateSwapImpact(
+      bins,
+      pairState.activeId,
+      pairState.binStep,
+      swapForY,
+      parsedAmountIn,
+      amountOut,
+    )
+  }, [bins, pairState.activeId, pairState.binStep, swapForY, parsedAmountIn, amountOut, quoteLoading])
+
+  const newActiveBinId = binImpact.length > 1 ? binImpact[binImpact.length - 1].binId : null
+
   useEffect(() => {
-    if (isSuccess) {
-      setAmountIn('')
-      reset()
-    }
+    if (isSuccess) { setAmountIn(''); reset() }
   }, [isSuccess, reset])
 
-  // Notify parent of swap state changes for chart overlay
   useEffect(() => {
     onSwapChange?.(swapForY, parsedAmountIn)
   }, [swapForY, parsedAmountIn, onSwapChange])
 
-  // Reset state when direction flips
   function handleFlip() {
     setTokenInIsX((v) => !v)
     setAmountIn('')
     reset()
   }
+
+  const VISIBLE_BINS = 4
 
   return (
     <div className="flex flex-col gap-3 max-w-md">
@@ -130,7 +219,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, onSwapChange 
         />
       </div>
 
-      {/* Flip button */}
+      {/* Flip */}
       <div className="flex justify-center">
         <button
           onClick={handleFlip}
@@ -158,7 +247,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, onSwapChange 
         </div>
       </div>
 
-      {/* Quote details */}
+      {/* Quote summary */}
       <AnimatePresence>
         {amountOut > 0n && (
           <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
@@ -187,7 +276,85 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, onSwapChange 
         )}
       </AnimatePresence>
 
-      {/* Off-market hours warning */}
+      {/* Bin-by-bin impact */}
+      <AnimatePresence>
+        {binImpact.length > 0 && (
+          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+            <div className="rounded-lg border border-border bg-surface-overlay p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-text-muted uppercase tracking-wide">Bin impact</p>
+                {binImpact.length > 1 && (
+                  <span className="text-[10px] text-warning">
+                    {binImpact.length} bin{binImpact.length > 1 ? 's' : ''} crossed
+                  </span>
+                )}
+              </div>
+
+              {binImpact.slice(0, VISIBLE_BINS).map((impact) => (
+                <div key={impact.binId} className="space-y-1.5">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      {impact.isActive && (
+                        <span className="text-[9px]" style={{ color: '#76fff4' }}>●</span>
+                      )}
+                      <span className="text-[10px] font-mono text-text-secondary">
+                        Bin {impact.binId}
+                      </span>
+                      <span className="text-[10px] text-text-muted">
+                        @ {formatBinPrice(impact.binId, pairState.binStep, 4)}
+                      </span>
+                    </div>
+                    <span className={`text-[10px] font-mono ${impact.isFullyDrained ? 'text-warning' : 'text-text-muted'}`}>
+                      {(impact.fractionConsumed * 100).toFixed(1)}%
+                      {impact.isFullyDrained && ' drained'}
+                    </span>
+                  </div>
+
+                  {/* Fill bar */}
+                  <div className="h-0.5 rounded-full bg-surface overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-200"
+                      style={{
+                        width: `${impact.fractionConsumed * 100}%`,
+                        backgroundColor: impact.isFullyDrained ? '#f59e0b' : '#0DAB76',
+                      }}
+                    />
+                  </div>
+
+                  {/* Amounts */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono" style={{ color: '#0DAB76' }}>
+                      +{fmtAmount(impact.amountIn, 6)} {tokenInSymbol}
+                    </span>
+                    <span className="text-[10px] font-mono" style={{ color: '#ef4444' }}>
+                      −{fmtAmount(impact.amountOut, 6)} {tokenOutSymbol}
+                    </span>
+                  </div>
+                </div>
+              ))}
+
+              {binImpact.length > VISIBLE_BINS && (
+                <p className="text-[10px] text-text-muted">
+                  +{binImpact.length - VISIBLE_BINS} more bins consumed
+                </p>
+              )}
+
+              {/* New active bin (only when crossing bins) */}
+              {newActiveBinId !== null && (
+                <div className="flex items-center justify-between pt-2 border-t border-border">
+                  <span className="text-[10px] text-text-muted uppercase tracking-wide">New active bin</span>
+                  <span className="text-[10px] font-mono" style={{ color: '#76fff4' }}>
+                    #{newActiveBinId} · {formatBinPrice(newActiveBinId, pairState.binStep, 4)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Off-market warning */}
       <AnimatePresence>
         {offMarket && (
           <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
@@ -240,9 +407,9 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, onSwapChange 
         <button
           onClick={() =>
             executeSwap({
+              pair: pairState.address,
               tokenIn,
               tokenOut,
-              binStep: pairState.binStep,
               amountIn: parsedAmountIn,
               minAmountOut,
             })

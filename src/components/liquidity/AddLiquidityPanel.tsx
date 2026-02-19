@@ -320,6 +320,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                   pairState={pairState}
                   tokenXSymbol={tokenXSymbol}
                   tokenYSymbol={tokenYSymbol}
+                  bins={bins}
                   onSwapChange={(forY, amount) => {
                     setSwapIsForY(forY)
                     setSwapAmountIn(amount)

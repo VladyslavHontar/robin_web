@@ -7,9 +7,9 @@ import { robinhoodTestnet } from '@/config/chains'
 import type { Address } from 'viem'
 
 type SwapParams = {
+  pair: Address
   tokenIn: Address
   tokenOut: Address
-  binStep: number
   amountIn: bigint
   /** amountOut × (10000 − slippageBps) / 10000n */
   minAmountOut: bigint
@@ -32,11 +32,11 @@ export function useSwap() {
     writeContract({
       address: contracts.router as Address,
       abi: lbRouterAbi,
-      functionName: 'swapExactTokensForTokens',
+      functionName: 'swapOnPair',
       args: [
+        params.pair,
         params.tokenIn,
         params.tokenOut,
-        params.binStep,
         params.amountIn,
         params.minAmountOut,
         account,
