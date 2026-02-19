@@ -30,6 +30,8 @@ type StrategyPreviewProps = {
   overlayColor?: string
   /** Legend label for the overlay (e.g. "to remove", "consumed") */
   overlayLabel?: string
+  /** Bin IDs where the connected wallet has LP positions (shows blue arrow indicators) */
+  userBinIds?: number[]
 }
 
 const PRECISION = 10n ** 18n
@@ -89,6 +91,7 @@ export function StrategyPreview({
   overlayBins,
   overlayColor = '#ef4444',
   overlayLabel,
+  userBinIds = [],
 }: StrategyPreviewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const tooltipRef = useRef<d3.Selection<HTMLDivElement, unknown, null, undefined> | null>(null)
@@ -351,7 +354,11 @@ export function StrategyPreview({
       return roundedTopRect(x(d.binId)!, topOfX, bw, h, BAR_RADIUS)
     }
 
-    const COLOR_OVERLAY = overlayColor
+    const COLOR_OVERLAY = overlayColor.startsWith('var(')
+      ? (styles.getPropertyValue(overlayColor.slice(4, -1).trim()).trim() || '#ef4444')
+      : overlayColor
+
+    const userBinSet = new Set(userBinIds)
 
     // Hack: x and bw are needed in targetExistingY etc but only defined after domain check.
     // We define a placeholder and set it properly in each branch.
@@ -409,6 +416,21 @@ export function StrategyPreview({
         .transition().duration(DUR).ease(EASE)
         .attr('d', targetOverlayX)
         .attr('opacity', (d) => d.normOverlayX > 0 ? 0.75 : 0)
+
+      // 7. user position markers
+      const markerPathFn = (d: Candle) => {
+        const cx = (x(d.binId) ?? 0) + bw / 2
+        const ty = d.existing > 0 ? y(d.existing) - 4 : Math.max(0, innerH - 20)
+        return `M${cx},${ty} L${cx - 4},${ty - 6} L${cx + 4},${ty - 6} Z`
+      }
+      const userMarkerData = candles.filter((c) => userBinSet.has(c.binId))
+      const markerSel = g.selectAll<SVGPathElement, Candle>('.bin-user-marker')
+        .data(userMarkerData, (d) => String(d.binId))
+      markerSel.enter().append('path').attr('class', 'bin-user-marker')
+        .attr('fill', '#60a5fa').attr('opacity', 0.9).style('pointer-events', 'none')
+        .attr('d', markerPathFn)
+      markerSel.transition().duration(DUR).ease(EASE).attr('d', markerPathFn)
+      markerSel.exit().remove()
 
       return
     }
@@ -517,6 +539,20 @@ export function StrategyPreview({
         .attr('d', targetOverlayX)
         .attr('opacity', (d) => d.normOverlayX > 0 ? 0.75 : 0)
 
+      // 7. user position markers (animated in)
+      const markerPathFn = (d: Candle) => {
+        const cx = (x(d.binId) ?? 0) + bw / 2
+        const ty = d.existing > 0 ? y(d.existing) - 4 : Math.max(0, innerH - 20)
+        return `M${cx},${ty} L${cx - 4},${ty - 6} L${cx + 4},${ty - 6} Z`
+      }
+      g.selectAll('.bin-user-marker')
+        .data(candles.filter((d) => userBinSet.has((d as Candle).binId)), (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bin-user-marker')
+        .attr('fill', '#60a5fa').attr('opacity', 0).style('pointer-events', 'none')
+        .attr('d', markerPathFn)
+        .transition().duration(DUR).ease(EASE)
+        .attr('opacity', 0.9)
+
     } else {
       // Zoom rebuild — instant placement
 
@@ -561,6 +597,18 @@ export function StrategyPreview({
         .enter().append('path').attr('class', 'bar-overlay-x')
         .attr('d', targetOverlayX).attr('fill', COLOR_OVERLAY)
         .attr('opacity', (d) => d.normOverlayX > 0 ? 0.75 : 0)
+
+      // 7. user position markers (instant)
+      const markerPathFn = (d: Candle) => {
+        const cx = (x(d.binId) ?? 0) + bw / 2
+        const ty = d.existing > 0 ? y(d.existing) - 4 : Math.max(0, innerH - 20)
+        return `M${cx},${ty} L${cx - 4},${ty - 6} L${cx + 4},${ty - 6} Z`
+      }
+      g.selectAll('.bin-user-marker')
+        .data(candles.filter((d) => userBinSet.has((d as Candle).binId)), (d) => String((d as Candle).binId))
+        .enter().append('path').attr('class', 'bin-user-marker')
+        .attr('fill', '#60a5fa').attr('opacity', 0.9).style('pointer-events', 'none')
+        .attr('d', markerPathFn)
     }
 
     // Active bin marker
@@ -805,7 +853,7 @@ export function StrategyPreview({
       rightHandle.call(dragRight as never)
     }
 
-  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange, tokenXSymbol, tokenYSymbol, overlayColor, renderTick])
+  }, [candles, activeBinId, binStep, startBin, endBin, editable, findNearestBin, onRangeChange, tokenXSymbol, tokenYSymbol, overlayColor, userBinIds, renderTick])
 
   // Tooltip cleanup on unmount
   useEffect(() => {

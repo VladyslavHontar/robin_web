@@ -11,12 +11,16 @@
   --color-text-muted: #3d6e48;
   --color-accent: #0DAB76;
   --color-accent-hover: #139A43;
-  --color-reserve-x: #0DAB76;
-  --color-reserve-y: #3b874c;
+  --color-reserve-x: rgba(178, 255, 89, 0.6);
+  --color-reserve-y: #1b4332;
   --color-active-bin: #76fff4;
   --color-success: #0DAB76;
   --color-warning: #f59e0b;
   --color-error: #ef4444;
+
+  /* Chart overlay colours — edit these to restyle the Remove / Swap overlays */
+  --color-overlay-remove: rgba(239, 68, 68, 0.89);
+  --color-overlay-swap:   #f59e0b;
 }
 
 body {

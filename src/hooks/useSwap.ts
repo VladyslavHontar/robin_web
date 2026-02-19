@@ -32,6 +32,17 @@ export function useSwap() {
     const contracts = getContracts(robinhoodTestnet.id)
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 600)
 
+    console.group('[Swap] Transaction Debug')
+    console.log('Router:', contracts.router)
+    console.log('Pair:', params.pair)
+    console.log('TokenIn:', params.tokenIn)
+    console.log('TokenOut:', params.tokenOut)
+    console.log('AmountIn:', params.amountIn.toString())
+    console.log('MinAmountOut:', params.minAmountOut.toString())
+    console.log('To:', account)
+    console.log('Deadline:', deadline.toString())
+    console.groupEnd()
+
     writeContract({
       address: contracts.router as Address,
       abi: lbRouterAbi,
