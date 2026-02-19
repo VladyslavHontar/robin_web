@@ -4,6 +4,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagm
 import { lbRouterAbi } from '@/config/abis/LBRouter'
 import { getContracts } from '@/config/contracts'
 import { robinhoodTestnet } from '@/config/chains'
+import { useTxToast } from './useTxToast'
 import type { Address } from 'viem'
 
 type SwapParams = {
@@ -22,6 +23,8 @@ export function useSwap() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
   })
+
+  useTxToast({ label: 'Swap', txHash, isSuccess, error })
 
   function executeSwap(params: SwapParams) {
     if (!account) return

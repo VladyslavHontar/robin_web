@@ -3,6 +3,7 @@
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { lbPairAbi } from '@/config/abis/LBPair'
 import { robinhoodTestnet } from '@/config/chains'
+import { useTxToast } from './useTxToast'
 import type { Address } from 'viem'
 
 export function useCollectFees() {
@@ -10,6 +11,8 @@ export function useCollectFees() {
   const { writeContract, data: txHash, isPending, error, reset } = useWriteContract()
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+
+  useTxToast({ label: 'Collect Fees', txHash, isSuccess, error })
 
   function collectFees(pairAddress: Address, binIds: number[]) {
     if (!account) return
