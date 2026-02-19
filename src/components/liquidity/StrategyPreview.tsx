@@ -95,6 +95,7 @@ export function StrategyPreview({
   const prevDomainRef = useRef<string>('')
   const hasRenderedRef = useRef(false)
   const prevEditableRef = useRef(editable)
+  const prevActiveBinRef = useRef(activeBinId)
   const distributionFnRef = useRef(distributionFn)
   distributionFnRef.current = distributionFn
   const amountXRef = useRef(amountX)
@@ -280,6 +281,15 @@ export function StrategyPreview({
       hasRenderedRef.current = false
     }
 
+    // If the active bin changed (e.g. after a cross-bin swap), force a full
+    // rebuild so the active bin marker line moves and bar-existing-x elements
+    // are created for the new active bin (in-place path can't enter new elements).
+    if (prevActiveBinRef.current !== activeBinId) {
+      prevActiveBinRef.current = activeBinId
+      prevDomainRef.current = ''
+      hasRenderedRef.current = false
+    }
+
     // Check if domain (visible bins) changed
     const domainKey = candles.map((c) => c.binId).join(',')
     const domainChanged = domainKey !== prevDomainRef.current
@@ -372,10 +382,10 @@ export function StrategyPreview({
 
       // 3. existing-X (on top of all Y)
       g.selectAll<SVGPathElement, Candle>('.bar-existing-x')
-        .data(candles.filter((c) => c.normExistingX > 0), (d) => String(d.binId))
+        .data(candles, (d) => String(d.binId))
         .transition().duration(DUR).ease(EASE)
         .attr('d', targetExistingX)
-        .attr('opacity', EXIST_OPACITY)
+        .attr('opacity', (d) => d.normExistingX > 0 ? EXIST_OPACITY : 0)
 
       // 4. added-X (on top of existing-X)
       g.selectAll<SVGPathElement, Candle>('.bar-added-x')
@@ -473,12 +483,12 @@ export function StrategyPreview({
 
       // 3. existing-X (on top of all Y)
       g.selectAll('.bar-existing-x')
-        .data(candles.filter((c) => c.normExistingX > 0), (d) => String((d as Candle).binId))
+        .data(candles, (d) => String((d as Candle).binId))
         .enter().append('path').attr('class', 'bar-existing-x')
         .attr('d', zeroBar).attr('fill', COLOR_EXISTING_X).attr('opacity', 0)
         .transition().duration(DUR).ease(EASE)
         .attr('d', targetExistingX)
-        .attr('opacity', EXIST_OPACITY)
+        .attr('opacity', (d) => d.normExistingX > 0 ? EXIST_OPACITY : 0)
 
       // 4. added-X (on top of existing-X)
       g.selectAll('.bar-added-x')
@@ -526,10 +536,10 @@ export function StrategyPreview({
 
       // 3. existing-X (on top of all Y)
       g.selectAll('.bar-existing-x')
-        .data(candles.filter((c) => c.normExistingX > 0), (d) => String((d as Candle).binId))
+        .data(candles, (d) => String((d as Candle).binId))
         .enter().append('path').attr('class', 'bar-existing-x')
         .attr('d', targetExistingX).attr('fill', COLOR_EXISTING_X)
-        .attr('opacity', EXIST_OPACITY)
+        .attr('opacity', (d) => d.normExistingX > 0 ? EXIST_OPACITY : 0)
 
       // 4. added-X (on top of existing-X)
       g.selectAll('.bar-added-x')
