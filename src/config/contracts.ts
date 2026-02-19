@@ -15,7 +15,7 @@ export const contracts: Record<number, ContractAddresses> = {
     router:           '0xC7c04dd814dF7bFd9Db5E5b39d4970f14139Ce45',
     compliance:       '0xde18aC9BACF03133BBEB2807ED999BB4a365a151',
     identityRegistry: '0x4Ca1BE049097df8CD44fDEfA04E02db0e1681095',
-    weth:             '0x0000000000000000000000000000000000000000',
+    weth:             '0xD01e5E257ea5014E92BDD5b746eD63815Ee8ffD4',
     oracleModule:     '0x24c79c663476Fc95243B62dC7a70B53360d6ec26',
   },
 }
