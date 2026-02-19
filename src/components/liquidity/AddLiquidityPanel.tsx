@@ -196,6 +196,10 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
   const overlayColor = mode === 'remove' ? 'var(--color-overlay-remove)' : 'var(--color-overlay-swap)'
   const overlayLabel = mode === 'remove' ? 'to remove' : mode === 'swap' ? 'consumed' : undefined
   const userBinIds = useMemo(() => positions.map((p) => p.binId), [positions])
+  const userShareMap = useMemo(
+    () => new Map(positions.map((p) => [p.binId, { shares: p.shares, totalShares: p.totalShares, estimatedX: p.estimatedX, estimatedY: p.estimatedY }])),
+    [positions],
+  )
 
   // ── Chart props — consistent across all modes ───────────────────────────
   const chartProps = {
@@ -210,6 +214,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
     overlayColor,
     overlayLabel,
     userBinIds,
+    userShareMap,
   }
 
   const showTokenX = requiredTokens === 'both' || requiredTokens === 'onlyX'

@@ -32,6 +32,8 @@ type StrategyPreviewProps = {
   overlayLabel?: string
   /** Bin IDs where the connected wallet has LP positions (shows blue arrow indicators) */
   userBinIds?: number[]
+  /** Per-bin share data for tooltip display */
+  userShareMap?: Map<number, { shares: bigint; totalShares: bigint; estimatedX: bigint; estimatedY: bigint }>
 }
 
 const PRECISION = 10n ** 18n
@@ -92,6 +94,7 @@ export function StrategyPreview({
   overlayColor = '#ef4444',
   overlayLabel,
   userBinIds = [],
+  userShareMap,
 }: StrategyPreviewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const tooltipRef = useRef<d3.Selection<HTMLDivElement, unknown, null, undefined> | null>(null)
@@ -105,6 +108,8 @@ export function StrategyPreview({
   amountXRef.current = amountX
   const amountYRef = useRef(amountY)
   amountYRef.current = amountY
+  const userShareMapRef = useRef<Map<number, { shares: bigint; totalShares: bigint; estimatedX: bigint; estimatedY: bigint }>>(new Map())
+  userShareMapRef.current = userShareMap ?? new Map()
   const [extraPadding, setExtraPadding] = useState(DEFAULT_PADDING)
   const [renderTick, setRenderTick] = useState(0)
 
@@ -653,6 +658,18 @@ export function StrategyPreview({
           `<div class="text-text-muted mb-1">Bin ${d.binId} ${d.binId === activeBinId ? `<span style="color:${activeBinColor}">Active</span>` : ''}</div>`,
           `<div class="text-text-secondary">Price: ${formatBinPrice(d.binId, binStep)}</div>`,
         ]
+
+        const userPos = userShareMapRef.current.get(d.binId)
+        if (userPos && userPos.totalShares > 0n) {
+          const pct = (Number(userPos.shares) * 100 / Number(userPos.totalShares)).toFixed(2)
+          const parts: string[] = []
+          if (userPos.estimatedX > 0n) parts.push(`${formatWei(userPos.estimatedX)} ${tokenXSymbol}`)
+          if (userPos.estimatedY > 0n) parts.push(`${formatWei(userPos.estimatedY)} ${tokenYSymbol}`)
+          lines.push(`<div class="mt-1" style="color:#60a5fa">Your share: ${pct}%</div>`)
+          if (parts.length > 0) {
+            lines.push(`<div class="text-[10px]" style="color:#93c5fd">${parts.join(' + ')}</div>`)
+          }
+        }
 
         const showX = d.existingX > 0 || d.addedX > 0 || d.binId >= activeBinId
         const showY = d.existingY > 0 || d.addedY > 0 || d.binId <= activeBinId
