@@ -90,8 +90,6 @@ function ToastItem({
   const isError   = toast.status === 'error'
 
   const accentColor = isSuccess ? '#0DAB76' : isError ? '#ef4444' : '#f59e0b'
-  const borderColor = isSuccess ? '#0DAB7640' : isError ? '#ef444440' : '#f59e0b40'
-  const bgColor     = isSuccess ? '#0DAB7610' : isError ? '#ef444410' : '#f59e0b10'
 
   return (
     <motion.div
@@ -102,9 +100,13 @@ function ToastItem({
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       onMouseEnter={pauseTimer}
       onMouseLeave={resumeTimer}
-      style={{ borderColor, backgroundColor: bgColor }}
-      className="w-72 rounded-xl border p-3.5 shadow-lg flex gap-3 items-start select-none"
+      className="relative w-72 rounded-xl border border-border bg-surface-raised/80 backdrop-blur-md p-3.5 shadow-2xl flex gap-3 items-start select-none overflow-hidden"
     >
+      {/* Left accent bar */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{ backgroundColor: accentColor }}
+      />
       {/* Status icon */}
       <div className="shrink-0 mt-0.5">
         {isPending && (
