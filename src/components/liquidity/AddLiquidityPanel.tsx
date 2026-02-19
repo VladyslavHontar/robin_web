@@ -9,6 +9,7 @@ import { ScrollPicker } from './ScrollPicker'
 import { StrategyPreview, type OverlayBin } from './StrategyPreview'
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel'
 import { SwapPanel } from './SwapPanel'
+import { UnclaimedFeesCard } from './UnclaimedFeesCard'
 import { useTokenApproval } from '@/hooks/useTokenApproval'
 import { useAddLiquidity, type Strategy } from '@/hooks/useAddLiquidity'
 import { useUserPositions } from '@/hooks/useUserPositions'
@@ -243,27 +244,36 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
 
   return (
     <div className="rounded-xl border border-border bg-surface-raised p-5">
-      {/* Add / Remove / Swap mode toggle */}
-      <div className="flex gap-1 bg-surface-overlay rounded-lg p-1 mb-4 w-fit">
-        {(['add', 'remove', 'swap'] as Mode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => { setMode(m); reset() }}
-            className={`relative px-4 py-1.5 rounded-md text-xs font-medium transition-colors z-10 ${
-              mode === m ? 'text-white' : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            {mode === m && (
-              <motion.div
-                layoutId="mode-indicator"
-                className="absolute inset-0 bg-accent rounded-md"
-                transition={{ type: 'spring', duration: 0.25, bounce: 0.15 }}
-                style={{ zIndex: -1 }}
-              />
-            )}
-            {m === 'add' ? 'Add' : m === 'remove' ? 'Remove' : 'Swap'}
-          </button>
-        ))}
+      {/* Mode toggle + unclaimed fees on the same row */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-1 bg-surface-overlay rounded-lg p-1 w-fit">
+          {(['add', 'remove', 'swap'] as Mode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); reset() }}
+              className={`relative px-4 py-1.5 rounded-md text-xs font-medium transition-colors z-10 ${
+                mode === m ? 'text-white' : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {mode === m && (
+                <motion.div
+                  layoutId="mode-indicator"
+                  className="absolute inset-0 bg-accent rounded-md"
+                  transition={{ type: 'spring', duration: 0.25, bounce: 0.15 }}
+                  style={{ zIndex: -1 }}
+                />
+              )}
+              {m === 'add' ? 'Add' : m === 'remove' ? 'Remove' : 'Swap'}
+            </button>
+          ))}
+        </div>
+
+        <UnclaimedFeesCard
+          pairState={pairState}
+          tokenXSymbol={tokenXSymbol}
+          tokenYSymbol={tokenYSymbol}
+          positions={positions}
+        />
       </div>
 
       {/* Always-visible grid: chart left, controls right */}
