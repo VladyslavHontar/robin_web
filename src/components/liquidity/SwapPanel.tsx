@@ -202,7 +202,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
   const VISIBLE_BINS = 4
 
   return (
-    <div className="flex flex-col gap-3 max-w-md">
+    <div className="flex flex-col gap-3">
       {/* From */}
       <div className="rounded-lg border border-border bg-surface-overlay p-3">
         <div className="flex items-center justify-between mb-1">
