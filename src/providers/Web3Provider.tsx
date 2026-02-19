@@ -94,7 +94,7 @@ const connectors = connectorsForWallets(
 const wagmiConfig = createConfig({
   chains: [robinhoodTestnet],
   connectors,
-  transports: { [robinhoodTestnet.id]: http() },
+  transports: { [robinhoodTestnet.id]: http(`/api/rpc/${robinhoodTestnet.id}`) },
   ssr: true,
 })
 

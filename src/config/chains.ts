@@ -14,3 +14,7 @@ export const robinhoodTestnet = defineChain({
     },
   },
 })
+
+// Registry of all supported chains — used by the RPC proxy to look up URLs.
+// !TODO add robinhoodMainnet here once its RPC is known.
+export const supportedChains = [robinhoodTestnet] as const

@@ -5,6 +5,7 @@ import { isAddress, type Address } from 'viem'
 import { useReadContract } from 'wagmi'
 import { useCreatePair, useComputePairAddress } from '@/hooks/useCreatePair'
 import { useValidateToken } from '@/hooks/useValidateToken'
+import { getBinIdFromPrice } from '@/lib/binMath'
 import { lbFactoryAbi } from '@/config/abis/LBFactory'
 import { getContracts } from '@/config/contracts'
 import { robinhoodTestnet } from '@/config/chains'
@@ -51,6 +52,11 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
   const [tokenA, setTokenA] = useState('')
   const [tokenB, setTokenB] = useState('')
   const [binStep, setBinStep] = useState<BinStep>(50)
+  const [initialPrice, setInitialPrice] = useState('')
+
+  const priceNum = parseFloat(initialPrice)
+  const validPrice = initialPrice !== '' && isFinite(priceNum) && priceNum > 0
+  const activeId = validPrice ? getBinIdFromPrice(priceNum, binStep) : undefined
 
   const { createPair, newPairAddress, isLoading, isSuccess, error } = useCreatePair()
 
@@ -79,7 +85,7 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
   const canSubmit =
     validA && validB &&
     validationA.isValid && validationB.isValid &&
-    !isDuplicate && !pairAlreadyExists && !isLoading
+    !isDuplicate && !pairAlreadyExists && validPrice && !isLoading
 
   // Derived address shown to user before they create the pool
   const { data: predicted } = useComputePairAddress(
@@ -90,8 +96,8 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!canSubmit) return
-    await createPair({ tokenA: tokenA as Address, tokenB: tokenB as Address, binStep })
+    if (!canSubmit || activeId === undefined) return
+    await createPair({ tokenA: tokenA as Address, tokenB: tokenB as Address, binStep, activeId })
   }
 
   // Persist pool to DB and notify parent when pair is created
@@ -200,6 +206,39 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
                 </label>
               ))}
             </div>
+          </div>
+
+          {/* Initial price */}
+          <div>
+            <label className="block text-sm text-text-secondary mb-1">
+              Initial price
+              <span className="text-text-muted font-normal"> — units of Token B per Token A</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={initialPrice}
+              onChange={e => setInitialPrice(e.target.value)}
+              placeholder="e.g. 195.50"
+              className={`w-full bg-surface-overlay border rounded-lg px-3 py-2 text-sm text-text-primary
+                         placeholder-text-muted focus:outline-none transition-colors ${
+                           initialPrice !== ''
+                             ? validPrice
+                               ? 'border-success/30 focus:border-success'
+                               : 'border-error/30 focus:border-error'
+                             : 'border-border focus:border-accent'
+                         }`}
+            />
+            {validPrice && activeId !== undefined && (
+              <p className="text-xs mt-1.5 text-text-muted">
+                Bin <span className="text-text-secondary font-mono">{activeId}</span>
+                {' · '}1 Token A = {priceNum.toLocaleString(undefined, { maximumFractionDigits: 8 })} Token B
+              </p>
+            )}
+            {initialPrice !== '' && !validPrice && (
+              <p className="text-xs mt-1.5 text-error">Enter a positive number</p>
+            )}
           </div>
 
           {/* Predicted address */}
