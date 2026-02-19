@@ -34,6 +34,36 @@ export const lbRouterAbi = [
   },
   {
     type: 'function',
+    name: 'swapExactTokensForTokens',
+    inputs: [
+      { name: 'tokenIn',      type: 'address' },
+      { name: 'tokenOut',     type: 'address' },
+      { name: 'binStep',      type: 'uint16'  },
+      { name: 'amountIn',     type: 'uint256' },
+      { name: 'minAmountOut', type: 'uint256' },
+      { name: 'to',           type: 'address' },
+      { name: 'deadline',     type: 'uint256' },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'swapOnPair',
+    inputs: [
+      { name: 'pair',          type: 'address' },
+      { name: 'tokenIn',      type: 'address' },
+      { name: 'tokenOut',     type: 'address' },
+      { name: 'amountIn',     type: 'uint256' },
+      { name: 'minAmountOut', type: 'uint256' },
+      { name: 'to',           type: 'address' },
+      { name: 'deadline',     type: 'uint256' },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'removeLiquidity',
     inputs: [
       { name: 'tokenX', type: 'address' },
