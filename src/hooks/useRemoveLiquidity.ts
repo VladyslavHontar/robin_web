@@ -3,6 +3,7 @@
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { lbPairAbi } from '@/config/abis/LBPair'
 import { robinhoodTestnet } from '@/config/chains'
+import { useTxToast } from './useTxToast'
 import type { Address } from 'viem'
 import type { UserPosition } from './useUserPositions'
 
@@ -20,6 +21,8 @@ export function useRemoveLiquidity() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
   })
+
+  useTxToast({ label: 'Remove Liquidity', txHash, isSuccess, error })
 
   function removeLiquidity(params: RemoveLiquidityParams) {
     if (!account) return
