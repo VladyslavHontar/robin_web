@@ -11,6 +11,7 @@ import {
   generateBidAskDistribution,
   isSymmetricRange,
 } from '@/lib/binMath'
+import { useTxToast } from './useTxToast'
 import type { DistShape } from '@/lib/binMath'
 import type { Address } from 'viem'
 
@@ -40,6 +41,8 @@ export function useAddLiquidity() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
   })
+
+  useTxToast({ label: 'Add Liquidity', txHash, isSuccess, error })
 
   function addLiquidity(params: AddLiquidityParams) {
     if (!account) return
