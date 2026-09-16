@@ -20,6 +20,25 @@ export function formatBinPrice(binId: number, binStep: number, decimals = 6): st
 }
 
 /**
+ * Normalize a bin's raw reserves to a common tokenY unit so that bars
+ * reflect economic value rather than raw token counts.
+ *
+ * price = tokenX per tokenY (e.g. AMZN per WETH from getPriceFromBinId).
+ * Dividing reserveX by that price converts it to tokenY-equivalent units.
+ * Pass the active-bin price to keep all bars on the same scale (StrategyPreview),
+ * or pass each bin's own price for per-bin accuracy (BinChart, BinMiniChart).
+ */
+export function binReservesToValue(
+  reserveX: bigint | number,
+  reserveY: bigint | number,
+  price: number,
+): { valueX: number; valueY: number; total: number } {
+  const vX = price > 0 ? Number(reserveX) / price : 0
+  const vY = Number(reserveY)
+  return { valueX: vX, valueY: vY, total: vX + vY }
+}
+
+/**
  * Get bin ID from a target price (approximate).
  * Inverse: binId = log(price) / log(1 + binStep/10000) + INITIAL_BIN_ID
  */
@@ -218,5 +237,25 @@ function buildWeightedDistribution(
     }
   }
 
+  // Normalize: adjust the largest non-zero element in each array so the sum
+  // is exactly PRECISION. Math.round() introduces up to ±0.5 per element,
+  // and those rounding errors accumulate — causing the contract to demand
+  // slightly more tokens than the user holds (TRANSFER_FROM_FAILED).
+  normalizeToPrecision(distributionX)
+  normalizeToPrecision(distributionY)
+
   return { binIds, distributionX, distributionY }
+}
+
+/** Adjust the largest non-zero element so the array sums to exactly PRECISION. */
+function normalizeToPrecision(arr: bigint[]): void {
+  const sum = arr.reduce((a, b) => a + b, 0n)
+  if (sum === 0n || sum === PRECISION) return
+  const diff = PRECISION - sum  // negative when sum > PRECISION
+  let maxIdx = -1
+  let maxVal = 0n
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] > maxVal) { maxVal = arr[i]; maxIdx = i }
+  }
+  if (maxIdx >= 0) arr[maxIdx] += diff
 }

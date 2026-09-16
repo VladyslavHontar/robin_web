@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { type Address } from 'viem'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useAllPairs } from '@/hooks/useAllPairs'
 import { PoolCard } from './PoolCard'
 import { CreatePoolModal } from './CreatePoolModal'
@@ -23,13 +24,14 @@ export function PoolGrid() {
         <h2 className="text-xl font-semibold text-text-primary">
           Pools {!isLoading && <span className="text-text-muted text-base font-normal">({pairs.length})</span>}
         </h2>
-        <button
+        <motion.button
           onClick={() => setShowCreate(true)}
+          whileTap={{ scale: 0.97 }}
           className="px-4 py-2 text-sm rounded-lg bg-accent text-white font-medium
                      hover:bg-accent-hover transition-colors"
         >
           + Create Pool
-        </button>
+        </motion.button>
       </div>
 
       {/* Pool list */}
@@ -53,12 +55,14 @@ export function PoolGrid() {
       )}
 
       {/* Create pool modal */}
-      {showCreate && (
-        <CreatePoolModal
-          onClose={() => setShowCreate(false)}
-          onCreated={handleCreated}
-        />
-      )}
+      <AnimatePresence>
+        {showCreate && (
+          <CreatePoolModal
+            onClose={() => setShowCreate(false)}
+            onCreated={handleCreated}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }

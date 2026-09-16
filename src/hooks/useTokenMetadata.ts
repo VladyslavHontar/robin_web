@@ -2,7 +2,6 @@
 
 import { useReadContracts } from 'wagmi'
 import { erc20Abi } from '@/config/abis/ERC20'
-import { knownTokens } from '@/config/contracts'
 import { robinhoodTestnet } from '@/config/chains'
 import type { Address } from 'viem'
 
@@ -17,11 +16,6 @@ export function useTokenMetadata(tokenAddress: Address | undefined): {
   token: TokenMetadata | undefined
   isLoading: boolean
 } {
-  // Check known tokens first
-  const known = tokenAddress
-    ? knownTokens[robinhoodTestnet.id]?.[tokenAddress]
-    : undefined
-
   const { data, isLoading } = useReadContracts({
     contracts: tokenAddress
       ? [
@@ -30,18 +24,11 @@ export function useTokenMetadata(tokenAddress: Address | undefined): {
           { address: tokenAddress, abi: erc20Abi, functionName: 'decimals', chainId: robinhoodTestnet.id },
         ]
       : [],
-    query: { enabled: !!tokenAddress && !known },
+    query: { enabled: !!tokenAddress },
   })
 
-  if (known && tokenAddress) {
-    return {
-      token: { address: tokenAddress, ...known },
-      isLoading: false,
-    }
-  }
-
   if (!tokenAddress || isLoading || !data) {
-    return { token: undefined, isLoading }
+    return { token: undefined, isLoading: !!tokenAddress && isLoading }
   }
 
   const name = data[0]?.status === 'success' ? (data[0].result as string) : 'Unknown'

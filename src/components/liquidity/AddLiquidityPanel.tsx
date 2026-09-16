@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
-import { parseEther, type Address } from 'viem'
+import { parseUnits, type Address } from 'viem'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TokenInput } from './TokenInput'
 import { ScrollPicker } from './ScrollPicker'
@@ -11,6 +11,7 @@ import { RemoveLiquidityPanel } from './RemoveLiquidityPanel'
 import { SwapPanel } from './SwapPanel'
 import { UnclaimedFeesCard } from './UnclaimedFeesCard'
 import { useTokenApproval } from '@/hooks/useTokenApproval'
+import { useTokenBalance } from '@/hooks/useTokenBalance'
 import { useAddLiquidity, type Strategy } from '@/hooks/useAddLiquidity'
 import { useUserPositions } from '@/hooks/useUserPositions'
 import { getContracts } from '@/config/contracts'
@@ -23,6 +24,7 @@ import {
   isSymmetricRange,
 } from '@/lib/binMath'
 import type { DistShape, Distribution } from '@/lib/binMath'
+import { anim, spring } from '@/lib/animations'
 import type { PairState } from '@/hooks/usePairState'
 import type { BinData } from '@/hooks/useBinRange'
 
@@ -38,13 +40,6 @@ const strategies: { key: Strategy; label: string; desc: string; minBins: number 
   { key: 'curve', label: 'Curve', desc: 'Concentrated around active bin', minBins: 3 },
   { key: 'bidask', label: 'Bid-Ask', desc: 'Most liquidity on the edges', minBins: 3 },
 ]
-
-const slideAnim = {
-  initial: { opacity: 0, height: 0 },
-  animate: { opacity: 1, height: 'auto' },
-  exit: { opacity: 0, height: 0 },
-  transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] as const },
-}
 
 const EMPTY_DISTRIBUTION: Distribution = { binIds: [], distributionX: [], distributionY: [] }
 const NOOP_DIST_FN = (): Distribution => EMPTY_DISTRIBUTION
@@ -120,24 +115,27 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
 
   const spender = useMemo(() => {
     if (strategy === 'spot') {
-      return isSymmetricRange(pairState.activeId, startBin, endBin)
-        ? (contracts.router as Address)
-        : pairState.address
+      const symmetric = isSymmetricRange(pairState.activeId, startBin, endBin)
+      const binRange = endBin - pairState.activeId
+      // Router addLiquidityUniform requires binRange >= 1; single-bin mints directly to pair
+      if (symmetric && binRange > 0) return contracts.router as Address
     }
     return pairState.address
   }, [strategy, pairState.activeId, pairState.address, startBin, endBin, contracts.router])
 
   const approvalX = useTokenApproval(pairState.tokenX, spender)
   const approvalY = useTokenApproval(pairState.tokenY, spender)
+  const { balance: balanceX, decimals: decimalsX } = useTokenBalance(pairState.tokenX)
+  const { balance: balanceY, decimals: decimalsY } = useTokenBalance(pairState.tokenY)
   const { addLiquidity, isPending, isSuccess, error, txHash, reset } = useAddLiquidity()
 
   const parsedAmountX = useMemo(() => {
-    try { return amountX ? parseEther(amountX) : 0n } catch { return 0n }
-  }, [amountX])
+    try { return amountX ? parseUnits(amountX, decimalsX ?? 18) : 0n } catch { return 0n }
+  }, [amountX, decimalsX])
 
   const parsedAmountY = useMemo(() => {
-    try { return amountY ? parseEther(amountY) : 0n } catch { return 0n }
-  }, [amountY])
+    try { return amountY ? parseUnits(amountY, decimalsY ?? 18) : 0n } catch { return 0n }
+  }, [amountY, decimalsY])
 
   useEffect(() => {
     if (requiredTokens === 'onlyX' && amountY !== '') setAmountY('')
@@ -221,7 +219,9 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
   const showTokenY = requiredTokens === 'both' || requiredTokens === 'onlyY'
   const needsApproveX = showTokenX && parsedAmountX > 0n && approvalX.needsApproval(parsedAmountX)
   const needsApproveY = showTokenY && parsedAmountY > 0n && approvalY.needsApproval(parsedAmountY)
-  const canSubmit = !tooFewBins && (parsedAmountX > 0n || parsedAmountY > 0n) && !needsApproveX && !needsApproveY
+  const insufficientX = showTokenX && parsedAmountX > 0n && balanceX !== undefined && parsedAmountX > balanceX
+  const insufficientY = showTokenY && parsedAmountY > 0n && balanceY !== undefined && parsedAmountY > balanceY
+  const canSubmit = !tooFewBins && (parsedAmountX > 0n || parsedAmountY > 0n) && !needsApproveX && !needsApproveY && !insufficientX && !insufficientY
 
   if (!isConnected) {
     return (
@@ -266,7 +266,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                 <motion.div
                   layoutId="mode-indicator"
                   className="absolute inset-0 bg-accent rounded-md"
-                  transition={{ type: 'spring', duration: 0.25, bounce: 0.15 }}
+                  transition={spring}
                   style={{ zIndex: -1 }}
                 />
               )}
@@ -307,10 +307,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
             {mode === 'remove' && (
               <motion.div
                 key="remove"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.15 }}
+                {...anim.fadeUp}
               >
                 <RemoveLiquidityPanel
                   pairState={pairState}
@@ -328,10 +325,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
             {mode === 'swap' && (
               <motion.div
                 key="swap"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.15 }}
+                {...anim.fadeUp}
               >
                 <SwapPanel
                   pairState={pairState}
@@ -350,10 +344,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
             {mode === 'add' && (
               <motion.div
                 key="add"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.15 }}
+                {...anim.fadeUp}
               >
                 <div className="flex flex-col gap-3">
                   {/* Strategy Tabs */}
@@ -370,7 +361,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                           <motion.div
                             layoutId="tab-indicator"
                             className="absolute inset-0 bg-accent rounded-md"
-                            transition={{ type: 'spring', duration: 0.25, bounce: 0.15 }}
+                            transition={spring}
                             style={{ zIndex: -1 }}
                           />
                         )}
@@ -396,7 +387,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                   {/* Shape selector + intensity */}
                   <AnimatePresence>
                     {(strategy === 'curve' || strategy === 'bidask') && (
-                      <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+                      <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-text-muted">Shape</span>
                           <div className="flex gap-0.5 bg-surface rounded-md p-0.5">
@@ -430,7 +421,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                   {/* Min bins warning */}
                   <AnimatePresence>
                     {tooFewBins && (
-                      <motion.p {...slideAnim} className="text-[10px] text-warning">
+                      <motion.p {...anim.slide} className="text-[10px] text-warning">
                         {currentStrategyConfig.label} requires at least {currentStrategyConfig.minBins} bins
                       </motion.p>
                     )}
@@ -440,7 +431,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                   <div className="space-y-2">
                     <AnimatePresence>
                       {showTokenX && (
-                        <motion.div key="tokenX" {...slideAnim} style={{ overflow: 'hidden' }}>
+                        <motion.div key="tokenX" {...anim.slide} style={{ overflow: 'hidden' }}>
                           <TokenInput
                             label={`${tokenXSymbol} Amount`}
                             symbol={tokenXSymbol}
@@ -451,7 +442,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                         </motion.div>
                       )}
                       {showTokenY && (
-                        <motion.div key="tokenY" {...slideAnim} style={{ overflow: 'hidden' }}>
+                        <motion.div key="tokenY" {...anim.slide} style={{ overflow: 'hidden' }}>
                           <TokenInput
                             label={`${tokenYSymbol} Amount`}
                             symbol={tokenYSymbol}
@@ -464,7 +455,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                     </AnimatePresence>
                     <AnimatePresence>
                       {requiredTokens !== 'both' && (
-                        <motion.p {...slideAnim} className="text-[10px] text-text-muted">
+                        <motion.p {...anim.slide} className="text-[10px] text-text-muted">
                           {requiredTokens === 'onlyX'
                             ? `Range is above active bin — only ${tokenXSymbol} needed`
                             : `Range is below active bin — only ${tokenYSymbol} needed`}
@@ -477,7 +468,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                   <div className="space-y-2">
                     <AnimatePresence>
                       {needsApproveX && (
-                        <motion.div key="approveX" {...slideAnim} style={{ overflow: 'hidden' }}>
+                        <motion.div key="approveX" {...anim.slide} style={{ overflow: 'hidden' }}>
                           <button
                             onClick={() => approvalX.approve(parsedAmountX)}
                             disabled={approvalX.isPending}
@@ -488,7 +479,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                         </motion.div>
                       )}
                       {needsApproveY && (
-                        <motion.div key="approveY" {...slideAnim} style={{ overflow: 'hidden' }}>
+                        <motion.div key="approveY" {...anim.slide} style={{ overflow: 'hidden' }}>
                           <button
                             onClick={() => approvalY.approve(parsedAmountY)}
                             disabled={approvalY.isPending}
@@ -500,6 +491,11 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                       )}
                     </AnimatePresence>
 
+                    {(insufficientX || insufficientY) && (
+                      <p className="text-xs text-error text-center">
+                        Insufficient {insufficientX ? tokenXSymbol : tokenYSymbol} balance
+                      </p>
+                    )}
                     <button
                       onClick={handleSubmit}
                       disabled={!canSubmit || isPending}
@@ -512,7 +508,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                   {/* Status */}
                   <AnimatePresence>
                     {isSuccess && txHash && (
-                      <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+                      <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
                         <div className="p-2.5 rounded-lg bg-success/10 border border-success/20">
                           <p className="text-xs text-success">Liquidity added successfully!</p>
                           <a
@@ -527,7 +523,7 @@ export function AddLiquidityPanel({ pairState, tokenXSymbol, tokenYSymbol, bins 
                       </motion.div>
                     )}
                     {error && (
-                      <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+                      <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
                         <div className="p-2.5 rounded-lg bg-error/10 border border-error/20">
                           <p className="text-xs text-error">{error.message.slice(0, 200)}</p>
                         </div>

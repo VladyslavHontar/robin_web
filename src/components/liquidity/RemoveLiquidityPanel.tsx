@@ -5,17 +5,11 @@ import { formatEther } from 'viem'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRemoveLiquidity } from '@/hooks/useRemoveLiquidity'
 import { robinhoodTestnet } from '@/config/chains'
+import { anim } from '@/lib/animations'
 import type { PairState } from '@/hooks/usePairState'
 import type { UserPosition } from '@/hooks/useUserPositions'
 
 const EXPLORER = robinhoodTestnet.blockExplorers!.default.url
-
-const slideAnim = {
-  initial: { opacity: 0, height: 0 },
-  animate: { opacity: 1, height: 'auto' },
-  exit: { opacity: 0, height: 0 },
-  transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] as const },
-}
 
 function fmt(value: bigint): string {
   const n = Number(formatEther(value))
@@ -191,7 +185,7 @@ export function RemoveLiquidityPanel({
       {/* Status */}
       <AnimatePresence>
         {isSuccess && txHash && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="p-2.5 rounded-lg bg-success/10 border border-success/20">
               <p className="text-xs text-success">Liquidity removed successfully!</p>
               <a
@@ -206,7 +200,7 @@ export function RemoveLiquidityPanel({
           </motion.div>
         )}
         {error && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="p-2.5 rounded-lg bg-error/10 border border-error/20">
               <p className="text-xs text-error">{error.message.slice(0, 200)}</p>
             </div>

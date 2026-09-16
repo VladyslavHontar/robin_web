@@ -3,7 +3,7 @@
 import { useRef, useEffect } from 'react'
 import * as d3 from 'd3'
 import type { BinData } from '@/hooks/useBinRange'
-import { formatBinPrice } from '@/lib/binMath'
+import { formatBinPrice, getPriceFromBinId, binReservesToValue } from '@/lib/binMath'
 import { formatWei } from '@/lib/formatters'
 
 /** SVG path with rounded top corners and flat bottom */
@@ -67,9 +67,12 @@ export function BinChart({
       .range([0, innerW])
       .padding(0.15)
 
-    const maxReserve = d3.max(bins, (b) => Number(b.reserveX + b.reserveY)) ?? 1
+    // Normalise reserves to tokenY units via the shared binReservesToValue helper.
+    const norm = (b: BinData) => binReservesToValue(b.reserveX, b.reserveY, getPriceFromBinId(b.binId, binStep))
 
-    const y = d3.scaleLinear().domain([0, maxReserve]).nice().range([innerH, 0])
+    const maxValue = d3.max(bins, (b) => norm(b).total) ?? 1
+
+    const y = d3.scaleLinear().domain([0, maxValue]).nice().range([innerH, 0])
 
     // X axis
     const tickValues = bins
@@ -90,9 +93,9 @@ export function BinChart({
       .attr('transform', 'rotate(-35)')
       .attr('text-anchor', 'end')
 
-    // Y axis
+    // Y axis — values are in tokenY units for comparability across bins
     g.append('g')
-      .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.2s')))
+      .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.3s')))
       .attr('color', '#3d6e48')
       .selectAll('text')
       .attr('font-size', '10px')
@@ -100,35 +103,46 @@ export function BinChart({
     const bw = x.bandwidth()
     const MIN_BAR_H = 35
 
-    // Bars — reserve Y (bottom)
-    g.selectAll('.bar-y')
-      .data(bins)
-      .enter()
-      .append('path')
-      .attr('class', 'bar-y')
-      .attr('d', (d) => {
-        const raw = innerH - y(Number(d.reserveY))
-        const h = Number(d.reserveY) > 0 ? Math.max(MIN_BAR_H, raw) : 0
-        return roundedTopRect(x(d.binId)!, innerH - h, bw, h, 6)
-      })
-      .attr('fill', COLOR_Y)
-      .attr('opacity', 0.8)
+    // Compute pixel heights from value-normalised amounts.
+    // Split the total bar proportionally so the X/Y ratio reflects economic value.
+    function barHeights(d: BinData): { hTotal: number; hY: number; hX: number } {
+      const { valueX: vX, valueY: vY, total: vT } = norm(d)
+      if (vT === 0) return { hTotal: 0, hY: 0, hX: 0 }
+      const rawTotal = innerH - y(vT)
+      const hTotal = Math.max(MIN_BAR_H, rawTotal)
+      const hY = Math.round(hTotal * (vY / vT))
+      const hX = hTotal - hY
+      return { hTotal, hY, hX }
+    }
 
-    // Bars — reserve X (stacked on top)
+    // Bars — reserve X (top segment)
     g.selectAll('.bar-x')
       .data(bins)
       .enter()
       .append('path')
       .attr('class', 'bar-x')
       .attr('d', (d) => {
-        const rawY = innerH - y(Number(d.reserveY))
-        const hY = Number(d.reserveY) > 0 ? Math.max(MIN_BAR_H, rawY) : 0
-        const rawX = y(Number(d.reserveY)) - y(Number(d.reserveX + d.reserveY))
-        const hX = Number(d.reserveX) > 0 ? Math.max(MIN_BAR_H, rawX) : 0
-        const by = innerH - hY - hX
-        return roundedTopRect(x(d.binId)!, by, bw, hX, 3)
+        const { hTotal, hX } = barHeights(d)
+        if (hX === 0) return `M0,0Z`
+        // X sits at the very top of the bar
+        return roundedTopRect(x(d.binId)!, innerH - hTotal, bw, hX, 6)
       })
       .attr('fill', COLOR_X)
+      .attr('opacity', 0.8)
+
+    // Bars — reserve Y (bottom segment, flush against X)
+    g.selectAll('.bar-y')
+      .data(bins)
+      .enter()
+      .append('path')
+      .attr('class', 'bar-y')
+      .attr('d', (d) => {
+        const { hTotal, hY, hX } = barHeights(d)
+        if (hY === 0) return `M0,0Z`
+        // Y starts just below X
+        return roundedTopRect(x(d.binId)!, innerH - hTotal + hX, bw, hY, hX === 0 ? 6 : 0)
+      })
+      .attr('fill', COLOR_Y)
       .attr('opacity', 0.8)
 
     // Active bin marker

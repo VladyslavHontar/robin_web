@@ -1,7 +1,7 @@
 'use client'
 
 import { useTokenBalance } from '@/hooks/useTokenBalance'
-import { formatWei } from '@/lib/formatters'
+import { formatUnits } from 'viem'
 import type { Address } from 'viem'
 
 type TokenInputProps = {
@@ -13,15 +13,14 @@ type TokenInputProps = {
 }
 
 export function TokenInput({ label, symbol, tokenAddress, value, onChange }: TokenInputProps) {
-  const { balance } = useTokenBalance(tokenAddress)
+  const { balance, decimals } = useTokenBalance(tokenAddress)
+  const dec = decimals ?? 18
 
-  const formattedBalance = balance !== undefined ? formatWei(balance, 18) : '—'
+  const formattedBalance = balance !== undefined ? formatUnits(balance, dec) : '—'
 
   function handleMax() {
     if (balance !== undefined) {
-      // Convert from wei to human-readable (18 decimals)
-      const human = Number(balance) / 1e18
-      onChange(human.toString())
+      onChange(formatUnits(balance, dec))
     }
   }
 
