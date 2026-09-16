@@ -20,6 +20,25 @@ export function formatBinPrice(binId: number, binStep: number, decimals = 6): st
 }
 
 /**
+ * Normalize a bin's raw reserves to a common tokenY unit so that bars
+ * reflect economic value rather than raw token counts.
+ *
+ * price = tokenX per tokenY (e.g. AMZN per WETH from getPriceFromBinId).
+ * Dividing reserveX by that price converts it to tokenY-equivalent units.
+ * Pass the active-bin price to keep all bars on the same scale (StrategyPreview),
+ * or pass each bin's own price for per-bin accuracy (BinChart, BinMiniChart).
+ */
+export function binReservesToValue(
+  reserveX: bigint | number,
+  reserveY: bigint | number,
+  price: number,
+): { valueX: number; valueY: number; total: number } {
+  const vX = price > 0 ? Number(reserveX) / price : 0
+  const vY = Number(reserveY)
+  return { valueX: vX, valueY: vY, total: vX + vY }
+}
+
+/**
  * Get bin ID from a target price (approximate).
  * Inverse: binId = log(price) / log(1 + binStep/10000) + INITIAL_BIN_ID
  */
@@ -43,6 +62,8 @@ export type Distribution = {
   distributionX: bigint[]
   distributionY: bigint[]
 }
+
+export type DistShape = 'linear' | 'exponential'
 
 const PRECISION = 10n ** 18n
 
@@ -85,7 +106,10 @@ export function generateUniformDistribution(
   const distributionX: bigint[] = []
   const distributionY: bigint[] = []
 
-  // Count bins that receive each token
+  // Count bins that receive each token.
+  // The active bin gets HALF weight from each side so that when both
+  // contributions combine, its total value equals a single full bin.
+  const hasActiveBin = startBin <= activeBinId && endBin >= activeBinId
   let binsWithX = 0
   let binsWithY = 0
   for (let id = startBin; id <= endBin; id++) {
@@ -93,20 +117,36 @@ export function generateUniformDistribution(
     if (id <= activeBinId) binsWithY++
   }
 
-  const sharePerBinX = binsWithX > 0 ? PRECISION / BigInt(binsWithX) : 0n
-  const sharePerBinY = binsWithY > 0 ? PRECISION / BigInt(binsWithY) : 0n
+  // Active bin counts as half a bin on each side:
+  // totalX = (binsWithX - 1) full + 0.5 active = binsWithX - 0.5
+  // We use 2x precision to avoid fractions: share = 2*PRECISION / (2*binsWithX - 1)
+  // Active gets half that: PRECISION / (2*binsWithX - 1)
+  const fullShareX = hasActiveBin && binsWithX > 0
+    ? (2n * PRECISION) / BigInt(2 * binsWithX - 1)
+    : (binsWithX > 0 ? PRECISION / BigInt(binsWithX) : 0n)
+  const halfShareX = hasActiveBin && binsWithX > 0
+    ? PRECISION / BigInt(2 * binsWithX - 1)
+    : fullShareX
+
+  const fullShareY = hasActiveBin && binsWithY > 0
+    ? (2n * PRECISION) / BigInt(2 * binsWithY - 1)
+    : (binsWithY > 0 ? PRECISION / BigInt(binsWithY) : 0n)
+  const halfShareY = hasActiveBin && binsWithY > 0
+    ? PRECISION / BigInt(2 * binsWithY - 1)
+    : fullShareY
 
   for (let id = startBin; id <= endBin; id++) {
     binIds.push(id)
     if (id < activeBinId) {
       distributionX.push(0n)
-      distributionY.push(sharePerBinY)
+      distributionY.push(fullShareY)
     } else if (id > activeBinId) {
-      distributionX.push(sharePerBinX)
+      distributionX.push(fullShareX)
       distributionY.push(0n)
     } else {
-      distributionX.push(sharePerBinX)
-      distributionY.push(sharePerBinY)
+      // Active bin gets half from each side
+      distributionX.push(halfShareX)
+      distributionY.push(halfShareY)
     }
   }
 
@@ -114,30 +154,66 @@ export function generateUniformDistribution(
 }
 
 /**
- * Normal (bell curve) distribution: weight = 100 / (1 + distance²).
- * Higher concentration around active bin.
+ * Curve distribution: concentrated around active bin. Requires ≥ 3 bins.
  */
-export function generateNormalDistribution(
+export function generateCurveDistribution(
   activeBinId: number,
-  binRange: number,
+  startBin: number,
+  endBin: number,
+  shape: DistShape = 'exponential',
+  intensity = 1.0,
 ): Distribution {
-  const startBin = activeBinId - binRange
-  const endBin = activeBinId + binRange
+  const maxDist = Math.max(activeBinId - startBin, endBin - activeBinId, 1)
+  const weightFn = shape === 'linear'
+    ? (d: number) => maxDist + 1 - Math.abs(d)
+    : (d: number) => Math.exp(-Math.abs(d) * intensity)
+  return buildWeightedDistribution(activeBinId, startBin, endBin, weightFn)
+}
 
+/**
+ * Bid-Ask distribution: most liquidity on edges, least at center. Requires ≥ 3 bins.
+ */
+export function generateBidAskDistribution(
+  activeBinId: number,
+  startBin: number,
+  endBin: number,
+  shape: DistShape = 'exponential',
+  intensity = 1.0,
+): Distribution {
+  const weightFn = shape === 'linear'
+    ? (d: number) => Math.abs(d) + 1
+    : (d: number) => Math.exp(Math.abs(d) * intensity * 0.5)
+  return buildWeightedDistribution(activeBinId, startBin, endBin, weightFn)
+}
+
+/** Shared helper for weighted distributions (curve, bid-ask). */
+function buildWeightedDistribution(
+  activeBinId: number,
+  startBin: number,
+  endBin: number,
+  weightFn: (distance: number) => number,
+): Distribution {
   const binIds: number[] = []
   const rawWeights: number[] = []
 
+  const hasActiveBin = startBin <= activeBinId && endBin >= activeBinId
   let totalWeightX = 0
   let totalWeightY = 0
 
   for (let id = startBin; id <= endBin; id++) {
     const distance = id - activeBinId
-    const weight = 100 / (1 + distance * distance)
+    const weight = weightFn(distance)
     binIds.push(id)
     rawWeights.push(weight)
 
-    if (id <= activeBinId) totalWeightY += weight
-    if (id >= activeBinId) totalWeightX += weight
+    // Active bin contributes half weight to each side's total
+    if (id === activeBinId && hasActiveBin) {
+      totalWeightY += weight / 2
+      totalWeightX += weight / 2
+    } else {
+      if (id <= activeBinId) totalWeightY += weight
+      if (id >= activeBinId) totalWeightX += weight
+    }
   }
 
   const distributionX: bigint[] = []
@@ -154,21 +230,32 @@ export function generateNormalDistribution(
       distributionX.push(BigInt(Math.round((weight / totalWeightX) * Number(PRECISION))))
       distributionY.push(0n)
     } else {
-      distributionX.push(BigInt(Math.round((weight / totalWeightX) * Number(PRECISION))))
-      distributionY.push(BigInt(Math.round((weight / totalWeightY) * Number(PRECISION))))
+      // Active bin: half weight from each side
+      const halfWeight = weight / 2
+      distributionX.push(BigInt(Math.round((halfWeight / totalWeightX) * Number(PRECISION))))
+      distributionY.push(BigInt(Math.round((halfWeight / totalWeightY) * Number(PRECISION))))
     }
   }
+
+  // Normalize: adjust the largest non-zero element in each array so the sum
+  // is exactly PRECISION. Math.round() introduces up to ±0.5 per element,
+  // and those rounding errors accumulate — causing the contract to demand
+  // slightly more tokens than the user holds (TRANSFER_FROM_FAILED).
+  normalizeToPrecision(distributionX)
+  normalizeToPrecision(distributionY)
 
   return { binIds, distributionX, distributionY }
 }
 
-/**
- * Spot distribution: all liquidity into a single bin.
- */
-export function generateSpotDistribution(binId: number): Distribution {
-  return {
-    binIds: [binId],
-    distributionX: [PRECISION],
-    distributionY: [PRECISION],
+/** Adjust the largest non-zero element so the array sums to exactly PRECISION. */
+function normalizeToPrecision(arr: bigint[]): void {
+  const sum = arr.reduce((a, b) => a + b, 0n)
+  if (sum === 0n || sum === PRECISION) return
+  const diff = PRECISION - sum  // negative when sum > PRECISION
+  let maxIdx = -1
+  let maxVal = 0n
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] > maxVal) { maxVal = arr[i]; maxIdx = i }
   }
+  if (maxIdx >= 0) arr[maxIdx] += diff
 }

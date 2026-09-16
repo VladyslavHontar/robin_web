@@ -1,6 +1,6 @@
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat
-RUN corepack enable
+RUN npm install -g pnpm@9.15.0
 
 # --- Dependencies ---
 FROM base AS deps
@@ -30,6 +30,9 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Create data directory for SQLite persistence (mounted as volume)
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 USER nextjs
 EXPOSE 3000

@@ -6,10 +6,14 @@ export function BinTable({
   bins,
   activeId,
   binStep,
+  tokenXSymbol = 'Token X',
+  tokenYSymbol = 'Token Y',
 }: {
   bins: BinData[]
   activeId: number
   binStep: number
+  tokenXSymbol?: string
+  tokenYSymbol?: string
 }) {
   if (bins.length === 0) {
     return (
@@ -32,8 +36,8 @@ export function BinTable({
             <tr className="border-b border-border text-text-muted text-xs">
               <th className="text-left px-4 py-2 font-medium">Bin ID</th>
               <th className="text-right px-4 py-2 font-medium">Price</th>
-              <th className="text-right px-4 py-2 font-medium">Reserve X</th>
-              <th className="text-right px-4 py-2 font-medium">Reserve Y</th>
+              <th className="text-right px-4 py-2 font-medium">{tokenXSymbol}</th>
+              <th className="text-right px-4 py-2 font-medium">{tokenYSymbol}</th>
             </tr>
           </thead>
           <tbody>

@@ -25,7 +25,6 @@ export function PoolCard({ address }: { address: Address }) {
   const price = formatBinPrice(pairState.activeId, pairState.binStep)
   const tier = getBinStepTier(pairState.binStep)
   const hasOracle = pairState.oracleAddress !== ZERO_ADDRESS
-  const hasCompliance = pairState.complianceAddress !== ZERO_ADDRESS
 
   return (
     <Link
@@ -68,9 +67,6 @@ export function PoolCard({ address }: { address: Address }) {
         <Badge variant="accent">{tier} ({pairState.binStep}bp)</Badge>
         <Badge variant={hasOracle ? 'success' : 'default'}>
           Oracle: {hasOracle ? 'Active' : 'None'}
-        </Badge>
-        <Badge variant={hasCompliance ? 'warning' : 'default'}>
-          Compliance: {hasCompliance ? 'On' : 'Off'}
         </Badge>
       </div>
     </Link>

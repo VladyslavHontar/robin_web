@@ -8,7 +8,7 @@ import type { Address } from 'viem'
 export function useTokenBalance(tokenAddress: Address | undefined) {
   const { address: account } = useAccount()
 
-  const { data: balance, isLoading } = useReadContract({
+  const { data: balance, isLoading: balanceLoading } = useReadContract({
     address: tokenAddress,
     abi: erc20Abi,
     functionName: 'balanceOf',
@@ -17,8 +17,17 @@ export function useTokenBalance(tokenAddress: Address | undefined) {
     query: { enabled: !!tokenAddress && !!account },
   })
 
+  const { data: decimals, isLoading: decimalsLoading } = useReadContract({
+    address: tokenAddress,
+    abi: erc20Abi,
+    functionName: 'decimals',
+    chainId: robinhoodTestnet.id,
+    query: { enabled: !!tokenAddress },
+  })
+
   return {
     balance: balance as bigint | undefined,
-    isLoading,
+    decimals: decimals as number | undefined,
+    isLoading: balanceLoading || decimalsLoading,
   }
 }

@@ -3,17 +3,36 @@
 import { useRef, useEffect } from 'react'
 import * as d3 from 'd3'
 import type { BinData } from '@/hooks/useBinRange'
-import { formatBinPrice } from '@/lib/binMath'
+import { formatBinPrice, getPriceFromBinId, binReservesToValue } from '@/lib/binMath'
 import { formatWei } from '@/lib/formatters'
+
+/** SVG path with rounded top corners and flat bottom */
+function roundedTopRect(bx: number, by: number, w: number, h: number, r: number): string {
+  if (h <= 0 || w <= 0) return `M${bx},${by} Z`
+  const radius = Math.min(r, w / 2, h)
+  return [
+    `M${bx},${by + h}`,
+    `V${by + radius}`,
+    `Q${bx},${by} ${bx + radius},${by}`,
+    `H${bx + w - radius}`,
+    `Q${bx + w},${by} ${bx + w},${by + radius}`,
+    `V${by + h}`,
+    'Z',
+  ].join(' ')
+}
 
 export function BinChart({
   bins,
   activeId,
   binStep,
+  tokenXSymbol = 'Token X',
+  tokenYSymbol = 'Token Y',
 }: {
   bins: BinData[]
   activeId: number
   binStep: number
+  tokenXSymbol?: string
+  tokenYSymbol?: string
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -32,6 +51,11 @@ export function BinChart({
 
     svg.attr('viewBox', `0 0 ${width} ${height}`)
 
+    const styles = getComputedStyle(document.documentElement)
+    const activeBinColor = styles.getPropertyValue('--color-active-bin').trim() || '#76fff4'
+    const COLOR_X = styles.getPropertyValue('--color-reserve-x').trim() || '#0DAB76'
+    const COLOR_Y = styles.getPropertyValue('--color-reserve-y').trim() || '#139A43'
+
     const g = svg
       .append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`)
@@ -43,9 +67,12 @@ export function BinChart({
       .range([0, innerW])
       .padding(0.15)
 
-    const maxReserve = d3.max(bins, (b) => Number(b.reserveX + b.reserveY)) ?? 1
+    // Normalise reserves to tokenY units via the shared binReservesToValue helper.
+    const norm = (b: BinData) => binReservesToValue(b.reserveX, b.reserveY, getPriceFromBinId(b.binId, binStep))
 
-    const y = d3.scaleLinear().domain([0, maxReserve]).nice().range([innerH, 0])
+    const maxValue = d3.max(bins, (b) => norm(b).total) ?? 1
+
+    const y = d3.scaleLinear().domain([0, maxValue]).nice().range([innerH, 0])
 
     // X axis
     const tickValues = bins
@@ -60,46 +87,63 @@ export function BinChart({
           .tickValues(tickValues)
           .tickFormat((d) => formatBinPrice(d as number, binStep, 4)),
       )
-      .attr('color', '#55556a')
+      .attr('color', '#3d6e48')
       .selectAll('text')
       .attr('font-size', '10px')
       .attr('transform', 'rotate(-35)')
       .attr('text-anchor', 'end')
 
-    // Y axis
+    // Y axis — values are in tokenY units for comparability across bins
     g.append('g')
-      .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.2s')))
-      .attr('color', '#55556a')
+      .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.3s')))
+      .attr('color', '#3d6e48')
       .selectAll('text')
       .attr('font-size', '10px')
 
-    // Bars — reserve Y (bottom, green)
-    g.selectAll('.bar-y')
-      .data(bins)
-      .enter()
-      .append('rect')
-      .attr('class', 'bar-y')
-      .attr('x', (d) => x(d.binId)!)
-      .attr('y', (d) => y(Number(d.reserveY)))
-      .attr('width', x.bandwidth())
-      .attr('height', (d) => innerH - y(Number(d.reserveY)))
-      .attr('fill', (d) => (d.binId === activeId ? '#f59e0b' : '#22c55e'))
-      .attr('opacity', 0.8)
-      .attr('rx', 1)
+    const bw = x.bandwidth()
+    const MIN_BAR_H = 35
 
-    // Bars — reserve X (stacked on top, blue)
+    // Compute pixel heights from value-normalised amounts.
+    // Split the total bar proportionally so the X/Y ratio reflects economic value.
+    function barHeights(d: BinData): { hTotal: number; hY: number; hX: number } {
+      const { valueX: vX, valueY: vY, total: vT } = norm(d)
+      if (vT === 0) return { hTotal: 0, hY: 0, hX: 0 }
+      const rawTotal = innerH - y(vT)
+      const hTotal = Math.max(MIN_BAR_H, rawTotal)
+      const hY = Math.round(hTotal * (vY / vT))
+      const hX = hTotal - hY
+      return { hTotal, hY, hX }
+    }
+
+    // Bars — reserve X (top segment)
     g.selectAll('.bar-x')
       .data(bins)
       .enter()
-      .append('rect')
+      .append('path')
       .attr('class', 'bar-x')
-      .attr('x', (d) => x(d.binId)!)
-      .attr('y', (d) => y(Number(d.reserveX + d.reserveY)))
-      .attr('width', x.bandwidth())
-      .attr('height', (d) => y(Number(d.reserveY)) - y(Number(d.reserveX + d.reserveY)))
-      .attr('fill', (d) => (d.binId === activeId ? '#fbbf24' : '#3b82f6'))
+      .attr('d', (d) => {
+        const { hTotal, hX } = barHeights(d)
+        if (hX === 0) return `M0,0Z`
+        // X sits at the very top of the bar
+        return roundedTopRect(x(d.binId)!, innerH - hTotal, bw, hX, 6)
+      })
+      .attr('fill', COLOR_X)
       .attr('opacity', 0.8)
-      .attr('rx', 1)
+
+    // Bars — reserve Y (bottom segment, flush against X)
+    g.selectAll('.bar-y')
+      .data(bins)
+      .enter()
+      .append('path')
+      .attr('class', 'bar-y')
+      .attr('d', (d) => {
+        const { hTotal, hY, hX } = barHeights(d)
+        if (hY === 0) return `M0,0Z`
+        // Y starts just below X
+        return roundedTopRect(x(d.binId)!, innerH - hTotal + hX, bw, hY, hX === 0 ? 6 : 0)
+      })
+      .attr('fill', COLOR_Y)
+      .attr('opacity', 0.8)
 
     // Active bin marker
     const activeBin = bins.find((b) => b.binId === activeId)
@@ -109,10 +153,10 @@ export function BinChart({
         .attr('x2', x(activeId)! + x.bandwidth() / 2)
         .attr('y1', 0)
         .attr('y2', innerH)
-        .attr('stroke', '#f59e0b')
-        .attr('stroke-width', 1)
+        .attr('stroke', activeBinColor)
+        .attr('stroke-width', 4)
         .attr('stroke-dasharray', '4,3')
-        .attr('opacity', 0.5)
+        .attr('opacity', 0.7)
     }
 
     // Tooltip
@@ -131,9 +175,9 @@ export function BinChart({
             `<div class="font-mono">
               <div class="text-text-muted">Bin ${bin.binId}</div>
               <div>Price: ${formatBinPrice(bin.binId, binStep)}</div>
-              <div class="text-reserve-x">X: ${formatWei(bin.reserveX)}</div>
-              <div class="text-reserve-y">Y: ${formatWei(bin.reserveY)}</div>
-              ${bin.binId === activeId ? '<div class="text-active-bin mt-1">Active Bin</div>' : ''}
+              <div style="color:${COLOR_X}">${tokenXSymbol}: ${formatWei(bin.reserveX)}</div>
+              <div style="color:${COLOR_Y}">${tokenYSymbol}: ${formatWei(bin.reserveY)}</div>
+              ${bin.binId === activeId ? `<div style="color:${activeBinColor}" class="mt-1">Active Bin</div>` : ''}
             </div>`,
           )
       })
@@ -150,7 +194,7 @@ export function BinChart({
     return () => {
       tooltip.remove()
     }
-  }, [bins, activeId, binStep])
+  }, [bins, activeId, binStep, tokenXSymbol, tokenYSymbol])
 
   if (bins.length === 0) {
     return (
@@ -166,10 +210,10 @@ export function BinChart({
         <h3 className="text-sm font-medium text-text-secondary">Bin Liquidity Distribution</h3>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-reserve-x" /> Token X
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-x)' }} /> {tokenXSymbol}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-reserve-y" /> Token Y
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--color-reserve-y)' }} /> {tokenYSymbol}
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-active-bin" /> Active

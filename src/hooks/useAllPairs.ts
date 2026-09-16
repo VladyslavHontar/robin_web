@@ -1,40 +1,26 @@
 'use client'
 
-import { useReadContract, useReadContracts } from 'wagmi'
-import { lbFactoryAbi } from '@/config/abis/LBFactory'
-import { getContracts } from '@/config/contracts'
-import { robinhoodTestnet } from '@/config/chains'
+import { useState, useEffect, useCallback } from 'react'
 import type { Address } from 'viem'
 
 export function useAllPairs() {
-  const { factory } = getContracts(robinhoodTestnet.id)
+  const [pairs, setPairs] = useState<Address[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { data: length, isLoading: isLoadingLength } = useReadContract({
-    address: factory,
-    abi: lbFactoryAbi,
-    functionName: 'allPairsLength',
-    chainId: robinhoodTestnet.id,
-  })
+  const fetchDbPools = useCallback(() => {
+    setIsLoading(true)
+    fetch('/api/pools')
+      .then((r) => r.json())
+      .then((pools: { pair_address: string }[]) => {
+        setPairs(pools.map((p) => p.pair_address as Address))
+      })
+      .catch(() => setPairs([]))
+      .finally(() => setIsLoading(false))
+  }, [])
 
-  const pairCount = length ? Number(length) : 0
+  useEffect(() => {
+    fetchDbPools()
+  }, [fetchDbPools])
 
-  const { data: pairsData, isLoading: isLoadingPairs } = useReadContracts({
-    contracts: Array.from({ length: pairCount }, (_, i) => ({
-      address: factory,
-      abi: lbFactoryAbi,
-      functionName: 'allPairs' as const,
-      args: [BigInt(i)] as const,
-      chainId: robinhoodTestnet.id,
-    })),
-    query: { enabled: pairCount > 0 },
-  })
-
-  const pairs: Address[] = pairsData
-    ?.filter((r) => r.status === 'success')
-    .map((r) => r.result as Address) ?? []
-
-  return {
-    pairs,
-    isLoading: isLoadingLength || isLoadingPairs,
-  }
+  return { pairs, isLoading, refetch: fetchDbPools }
 }

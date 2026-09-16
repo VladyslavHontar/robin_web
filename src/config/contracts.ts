@@ -11,23 +11,15 @@ type ContractAddresses = {
 
 export const contracts: Record<number, ContractAddresses> = {
   46630: {
-    factory: '0x30f8819710611d80Ce22d57947223F33C2fe8C9E',
-    router: '0x7A112f26C32763B1b774899668EEfd3E0DF06447',
-    compliance: '0xEFb56C901723c03DcddC8Bf38e2737d58D71c26B',
-    identityRegistry: '0x40e9724795d9E14668e76455622017a5a3Ffb745',
-    weth: '0xD01e5E257ea5014E92BDD5b746eD63815Ee8ffD4',
-    oracleModule: '0x0000000000000000000000000000000000000000', // resolved dynamically from factory
+    factory:          '0x629b392a798a99558c55013931447a6Db35ef649',
+    router:           '0x4A620A2F544A260255C396550Ed65259635bC91C',
+    compliance:       '0x6E5DDd54c0a07bdD65f679c83d9FfB7dDB6d075F',
+    identityRegistry: '0x4c7D837eFdBEbE4Ff3876F6F5568b16fD8a03EE1',
+    weth:             '0xfeA10a4E52613F510f2A21D89794A271635b54ba',
+    oracleModule:     '0x1831D5Ad7F8792e110d4710afbFC51F613E1875b',
   },
 }
 
-export const knownTokens: Record<number, Record<Address, { symbol: string; name: string; decimals: number }>> = {
-  46630: {
-    '0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02': { symbol: 'AMZN', name: 'Amazon', decimals: 18 },
-    '0x71178BAc73cBeb415514eB542a8995b82669778d': { symbol: 'AMD', name: 'AMD', decimals: 18 },
-    '0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93': { symbol: 'NFLX', name: 'Netflix', decimals: 18 },
-    '0xD01e5E257ea5014E92BDD5b746eD63815Ee8ffD4': { symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-  },
-}
 
 export function getContracts(chainId: number): ContractAddresses {
   const c = contracts[chainId]

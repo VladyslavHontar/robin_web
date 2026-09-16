@@ -13,7 +13,7 @@ export function TokenIcon({
   symbol: string
   size?: number
 }) {
-  const color = TOKEN_COLORS[symbol] ?? '#6366f1'
+  const color = TOKEN_COLORS[symbol] ?? '#0DAB76'
 
   return (
     <div

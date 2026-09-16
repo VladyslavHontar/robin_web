@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { truncateAddress } from '@/lib/formatters'
 
-export function CopyAddress({ address, chars = 4 }: { address: string; chars?: number }) {
+export function CopyAddress({ address, chars = 4, iconOnly = false }: { address: string; chars?: number; iconOnly?: boolean }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(() => {
@@ -18,7 +18,7 @@ export function CopyAddress({ address, chars = 4 }: { address: string; chars?: n
       className="inline-flex items-center gap-1 text-text-secondary hover:text-text-primary font-mono text-xs transition-colors cursor-pointer"
       title={address}
     >
-      {truncateAddress(address, chars)}
+      {!iconOnly && truncateAddress(address, chars)}
       <span className="text-[10px]">{copied ? '✓' : '⧉'}</span>
     </button>
   )

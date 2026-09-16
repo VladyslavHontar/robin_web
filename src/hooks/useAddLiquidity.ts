@@ -7,12 +7,17 @@ import { robinhoodTestnet } from '@/config/chains'
 import { getContracts } from '@/config/contracts'
 import {
   generateUniformDistribution,
-  generateNormalDistribution,
+  generateCurveDistribution,
+  generateBidAskDistribution,
   isSymmetricRange,
 } from '@/lib/binMath'
+import { useTxToast } from './useTxToast'
+import type { DistShape } from '@/lib/binMath'
 import type { Address } from 'viem'
 
-export type Strategy = 'uniform' | 'normal' | 'spot'
+const PRECISION = 10n ** 18n
+
+export type Strategy = 'spot' | 'curve' | 'bidask'
 
 type AddLiquidityParams = {
   pairAddress: Address
@@ -23,9 +28,10 @@ type AddLiquidityParams = {
   amountX: bigint
   amountY: bigint
   strategy: Strategy
+  shape: DistShape
+  intensity: number
   startBin: number
   endBin: number
-  spotBinId?: number
 }
 
 export function useAddLiquidity() {
@@ -36,18 +42,36 @@ export function useAddLiquidity() {
     hash: txHash,
   })
 
+  useTxToast({ label: 'Add Liquidity', txHash, isSuccess, error })
+
   function addLiquidity(params: AddLiquidityParams) {
     if (!account) return
 
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 600)
     const contracts = getContracts(robinhoodTestnet.id)
 
-    if (params.strategy === 'uniform') {
-      const symmetric = isSymmetricRange(params.activeBinId, params.startBin, params.endBin)
+    console.group('[AddLiquidity] Transaction Debug')
+    console.log('Strategy:', params.strategy)
+    console.log('Pair:', params.pairAddress)
+    console.log('TokenX:', params.tokenX)
+    console.log('TokenY:', params.tokenY)
+    console.log('BinStep:', params.binStep)
+    console.log('ActiveBinId:', params.activeBinId)
+    console.log('Range:', params.startBin, '→', params.endBin)
+    console.log('AmountX:', params.amountX.toString())
+    console.log('AmountY:', params.amountY.toString())
 
-      if (symmetric) {
-        // Symmetric: use router's efficient addLiquidityUniform
-        const binRange = params.endBin - params.activeBinId
+    if (params.strategy === 'spot') {
+      // Spot (uniform): equal across all bins
+      const symmetric = isSymmetricRange(params.activeBinId, params.startBin, params.endBin)
+      const binRange = params.endBin - params.activeBinId
+
+      // Router addLiquidityUniform requires binRange >= 1 (rejects 0).
+      // Fall through to mintDirect for a single-bin selection.
+      if (symmetric && binRange > 0) {
+        console.log('Mode: Router addLiquidityUniform (symmetric)')
+        console.log('BinRange:', binRange)
+        console.groupEnd()
         writeContract({
           address: contracts.router as Address,
           abi: lbRouterAbi,
@@ -66,51 +90,53 @@ export function useAddLiquidity() {
           chainId: robinhoodTestnet.id,
         })
       } else {
-        // Asymmetric: call LBPair.mint() directly
         const dist = generateUniformDistribution(params.activeBinId, params.startBin, params.endBin)
-        writeContract({
-          address: params.pairAddress,
-          abi: lbPairAbi,
-          functionName: 'mint',
-          args: [
-            {
-              binIds: dist.binIds,
-              distributionX: dist.distributionX,
-              distributionY: dist.distributionY,
-              amountX: params.amountX,
-              amountY: params.amountY,
-              activeIdDesired: params.activeBinId,
-              idSlippage: 5,
-              deadline,
-              to: account,
-            },
-          ],
-          chainId: robinhoodTestnet.id,
-        })
+        const label = symmetric ? 'Direct mint (single bin)' : 'Direct mint (asymmetric spot)'
+        console.log('Mode:', label)
+        logDistribution(dist)
+        console.groupEnd()
+        mintDirect(params, dist, deadline)
       }
-    } else if (params.strategy === 'spot') {
-      const binId = params.spotBinId ?? params.activeBinId
-      writeContract({
-        address: contracts.router as Address,
-        abi: lbRouterAbi,
-        functionName: 'addLiquiditySpot',
-        args: [
-          params.tokenX,
-          params.tokenY,
-          params.binStep,
-          params.amountX,
-          params.amountY,
-          binId,
-          account,
-          deadline,
-        ],
-        chainId: robinhoodTestnet.id,
-      })
+    } else if (params.strategy === 'curve') {
+      // Curve (bell curve): most liquidity at center
+      const dist = generateCurveDistribution(params.activeBinId, params.startBin, params.endBin, params.shape, params.intensity)
+      console.log('Mode: Direct mint (curve)')
+      console.log('Shape:', params.shape, 'Intensity:', params.intensity)
+      logDistribution(dist)
+      console.groupEnd()
+      mintDirect(params, dist, deadline)
     } else {
-      // Normal: call LBPair.mint() directly with bell curve distribution
-      const dist = generateNormalDistribution(params.activeBinId, params.endBin - params.activeBinId)
+      // Bid-Ask (inverse curve): most liquidity on edges
+      const dist = generateBidAskDistribution(params.activeBinId, params.startBin, params.endBin, params.shape, params.intensity)
+      console.log('Mode: Direct mint (bid-ask)')
+      console.log('Shape:', params.shape, 'Intensity:', params.intensity)
+      logDistribution(dist)
+      console.groupEnd()
+      mintDirect(params, dist, deadline)
+    }
+
+    function logDistribution(dist: { binIds: number[]; distributionX: bigint[]; distributionY: bigint[] }) {
+      console.log('Bins:', dist.binIds.length)
+      const sumX = dist.distributionX.reduce((a, b) => a + b, 0n)
+      const sumY = dist.distributionY.reduce((a, b) => a + b, 0n)
+      console.log('Sum distributionX:', sumX.toString(), sumX === PRECISION ? '✓ (1e18)' : '⚠ NOT 1e18')
+      console.log('Sum distributionY:', sumY.toString(), sumY === PRECISION ? '✓ (1e18)' : '⚠ NOT 1e18')
+      console.table(dist.binIds.map((id, i) => ({
+        binId: id,
+        distX: dist.distributionX[i].toString(),
+        distY: dist.distributionY[i].toString(),
+        amountX: (params.amountX * dist.distributionX[i] / PRECISION).toString(),
+        amountY: (params.amountY * dist.distributionY[i] / PRECISION).toString(),
+      })))
+    }
+
+    function mintDirect(
+      p: AddLiquidityParams,
+      dist: { binIds: number[]; distributionX: bigint[]; distributionY: bigint[] },
+      dl: bigint,
+    ) {
       writeContract({
-        address: params.pairAddress,
+        address: p.pairAddress,
         abi: lbPairAbi,
         functionName: 'mint',
         args: [
@@ -118,12 +144,12 @@ export function useAddLiquidity() {
             binIds: dist.binIds,
             distributionX: dist.distributionX,
             distributionY: dist.distributionY,
-            amountX: params.amountX,
-            amountY: params.amountY,
-            activeIdDesired: params.activeBinId,
+            amountX: p.amountX,
+            amountY: p.amountY,
+            activeIdDesired: p.activeBinId,
             idSlippage: 5,
-            deadline,
-            to: account,
+            deadline: dl,
+            to: account!,
           },
         ],
         chainId: robinhoodTestnet.id,
