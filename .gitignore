@@ -8,3 +8,8 @@ out/
 next-env.d.ts
 .idea/
 data/
+
+# local
+CLAUDE.md
+.claude/
+.DS_Store

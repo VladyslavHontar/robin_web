@@ -9,17 +9,11 @@ import { useSwap } from '@/hooks/useSwap'
 import { getContracts } from '@/config/contracts'
 import { robinhoodTestnet } from '@/config/chains'
 import { getPriceFromBinId, formatBinPrice } from '@/lib/binMath'
+import { anim } from '@/lib/animations'
 import type { PairState } from '@/hooks/usePairState'
 import type { BinData } from '@/hooks/useBinRange'
 
 const EXPLORER = robinhoodTestnet.blockExplorers!.default.url
-
-const slideAnim = {
-  initial: { opacity: 0, height: 0 },
-  animate: { opacity: 1, height: 'auto' },
-  exit: { opacity: 0, height: 0 },
-  transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] as const },
-}
 
 const SLIPPAGE_PRESETS = [0.1, 0.5, 1.0] as const
 
@@ -250,7 +244,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
       {/* Quote summary */}
       <AnimatePresence>
         {amountOut > 0n && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="rounded-lg border border-border bg-surface-overlay p-3 space-y-1.5">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-text-muted">Rate</span>
@@ -279,7 +273,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
       {/* Bin-by-bin impact */}
       <AnimatePresence>
         {binImpact.length > 0 && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="rounded-lg border border-border bg-surface-overlay p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] text-text-muted uppercase tracking-wide">Bin impact</p>
@@ -357,7 +351,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
       {/* Off-market warning */}
       <AnimatePresence>
         {offMarket && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-warning/30 bg-warning/5">
               <span className="text-warning text-xs">⚠</span>
               <p className="text-xs text-warning">
@@ -392,7 +386,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
       <div className="space-y-2">
         <AnimatePresence>
           {needsApproval && (
-            <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+            <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
               <button
                 onClick={() => approval.approve(parsedAmountIn)}
                 disabled={approval.isPending}
@@ -424,7 +418,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
       {/* Status */}
       <AnimatePresence>
         {isSuccess && txHash && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="p-2.5 rounded-lg bg-success/10 border border-success/20">
               <p className="text-xs text-success">Swap successful!</p>
               <a
@@ -439,7 +433,7 @@ export function SwapPanel({ pairState, tokenXSymbol, tokenYSymbol, bins, onSwapC
           </motion.div>
         )}
         {error && (
-          <motion.div {...slideAnim} style={{ overflow: 'hidden' }}>
+          <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
             <div className="p-2.5 rounded-lg bg-error/10 border border-error/20">
               <p className="text-xs text-error">{error.message.slice(0, 200)}</p>
             </div>

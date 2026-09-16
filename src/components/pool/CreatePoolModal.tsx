@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { isAddress, type Address } from 'viem'
+import { motion, AnimatePresence } from 'framer-motion'
+import { anim } from '@/lib/animations'
 import { useReadContract } from 'wagmi'
 import { useCreatePair, useComputePairAddress } from '@/hooks/useCreatePair'
 import { useValidateToken } from '@/hooks/useValidateToken'
@@ -51,6 +53,11 @@ function TokenStatus({ address, validation }: {
 export function CreatePoolModal({ onClose, onCreated }: Props) {
   const [tokenA, setTokenA] = useState('')
   const [tokenB, setTokenB] = useState('')
+
+  function swapTokens() {
+    setTokenA(tokenB)
+    setTokenB(tokenA)
+  }
   const [binStep, setBinStep] = useState<BinStep>(50)
   const [initialPrice, setInitialPrice] = useState('')
 
@@ -119,8 +126,14 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
   }, [isSuccess, newPairAddress, onCreated, tokenA, tokenB, binStep])
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-surface-raised border border-border rounded-xl w-full max-w-lg mx-4 p-6">
+    <motion.div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      {...anim.modalBackdrop}
+    >
+      <motion.div
+        className="bg-surface-raised border border-border rounded-xl w-full max-w-lg mx-4 p-6"
+        {...anim.modalPanel}
+      >
 
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -140,14 +153,34 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
               placeholder="0x… token address"
               className={`w-full bg-surface-overlay border rounded-lg px-3 py-2 text-sm text-text-primary
                          placeholder-text-muted focus:outline-none font-mono transition-colors ${
-                           tokenA && validA && !validationA.isLoading
-                             ? validationA.isValid
-                               ? 'border-success/30 focus:border-success'
-                               : 'border-error/30 focus:border-error'
-                             : 'border-border focus:border-accent'
+                           !tokenA
+                             ? 'border-border focus:border-accent'
+                             : !validA
+                               ? 'border-error focus:border-error'
+                               : validationA.isLoading
+                                 ? 'border-border focus:border-accent'
+                                 : validationA.isValid
+                                   ? 'border-success/30 focus:border-success'
+                                   : 'border-error focus:border-error'
                          }`}
             />
             <TokenStatus address={tokenA} validation={validationA} />
+          </div>
+
+          {/* Swap tokens */}
+          <div className="flex justify-center -my-2">
+            <motion.button
+              type="button"
+              onClick={swapTokens}
+              whileTap={{ scale: 0.9, rotate: 180 }}
+              transition={{ duration: 0.2 }}
+              className="w-7 h-7 flex items-center justify-center rounded-full border border-border
+                         bg-surface-overlay text-text-muted hover:text-accent hover:border-accent/40
+                         transition-colors text-sm"
+              title="Swap tokens"
+            >
+              ⇅
+            </motion.button>
           </div>
 
           {/* Token B */}
@@ -160,30 +193,42 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
               placeholder="0x… token address"
               className={`w-full bg-surface-overlay border rounded-lg px-3 py-2 text-sm text-text-primary
                          placeholder-text-muted focus:outline-none font-mono transition-colors ${
-                           tokenB && validB && !validationB.isLoading
-                             ? validationB.isValid
-                               ? 'border-success/30 focus:border-success'
-                               : 'border-error/30 focus:border-error'
-                             : 'border-border focus:border-accent'
+                           !tokenB
+                             ? 'border-border focus:border-accent'
+                             : !validB
+                               ? 'border-error focus:border-error'
+                               : validationB.isLoading
+                                 ? 'border-border focus:border-accent'
+                                 : validationB.isValid
+                                   ? 'border-success/30 focus:border-success'
+                                   : 'border-error focus:border-error'
                          }`}
             />
             <TokenStatus address={tokenB} validation={validationB} />
           </div>
 
           {/* Duplicate warning */}
-          {isDuplicate && (
-            <div className="bg-error/10 border border-error/20 rounded-lg p-3">
-              <p className="text-xs text-error">Token A and Token B cannot be the same address</p>
-            </div>
-          )}
+          <AnimatePresence>
+            {isDuplicate && (
+              <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                <div className="bg-error/10 border border-error/20 rounded-lg p-3">
+                  <p className="text-xs text-error">Token A and Token B cannot be the same address</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Pool already exists warning */}
-          {pairAlreadyExists && !isDuplicate && (
-            <div className="bg-warning/10 border border-warning/20 rounded-lg p-3 space-y-1">
-              <p className="text-xs text-warning font-medium">Pool already exists</p>
-              <p className="text-xs font-mono text-warning/80 break-all">{existingPair}</p>
-            </div>
-          )}
+          <AnimatePresence>
+            {pairAlreadyExists && !isDuplicate && (
+              <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                <div className="bg-warning/10 border border-warning/20 rounded-lg p-3 space-y-1">
+                  <p className="text-xs text-warning font-medium">Pool already exists</p>
+                  <p className="text-xs font-mono text-warning/80 break-all">{existingPair}</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Bin step */}
           <div>
@@ -227,7 +272,8 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
               onChange={e => setInitialPrice(e.target.value)}
               placeholder="e.g. 195.50"
               className={`w-full bg-surface-overlay border rounded-lg px-3 py-2 text-sm text-text-primary
-                         placeholder-text-muted focus:outline-none transition-colors ${
+                         placeholder-text-muted focus:outline-none transition-colors
+                         [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                            initialPrice !== ''
                              ? validPrice
                                ? 'border-success/30 focus:border-success'
@@ -235,39 +281,57 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
                              : 'border-border focus:border-accent'
                          }`}
             />
-            {validPrice && activeId !== undefined && (
-              <p className="text-xs mt-1.5 text-text-muted">
-                Bin <span className="text-text-secondary font-mono">{activeId}</span>
-                {' · '}1 {validationA.symbol ?? 'Token A'} = {priceNum.toLocaleString(undefined, { maximumFractionDigits: 8 })} {validationB.symbol ?? 'Token B'}
-              </p>
-            )}
-            {initialPrice !== '' && !validPrice && (
-              <p className="text-xs mt-1.5 text-error">Enter a positive number</p>
-            )}
+            <AnimatePresence>
+              {validPrice && activeId !== undefined && (
+                <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                  <p className="text-xs mt-1.5 text-text-muted">
+                    Bin <span className="text-text-secondary font-mono">{activeId}</span>
+                    {' · '}1 {validationA.symbol ?? 'Token A'} = {priceNum.toLocaleString(undefined, { maximumFractionDigits: 8 })} {validationB.symbol ?? 'Token B'}
+                  </p>
+                </motion.div>
+              )}
+              {initialPrice !== '' && !validPrice && (
+                <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                  <p className="text-xs mt-1.5 text-error">Enter a positive number</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Predicted address */}
-          {predicted && predicted !== '0x0000000000000000000000000000000000000000' && !isDuplicate && (
-            <div className="bg-surface-overlay rounded-lg p-3">
-              <p className="text-xs text-text-secondary mb-1">Pool address</p>
-              <p className="text-xs font-mono text-accent break-all">{predicted}</p>
-            </div>
-          )}
+          <AnimatePresence>
+            {predicted && predicted !== '0x0000000000000000000000000000000000000000' && !isDuplicate && (
+              <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                <div className="bg-surface-overlay rounded-lg p-3">
+                  <p className="text-xs text-text-secondary mb-1">Pool address</p>
+                  <p className="text-xs font-mono text-accent break-all">{predicted}</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Error */}
-          {error && (
-            <div className="bg-error/10 border border-error/20 rounded-lg p-3">
-              <p className="text-xs text-error">{error.message.split('\n')[0]}</p>
-            </div>
-          )}
+          <AnimatePresence>
+            {error && (
+              <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                <div className="bg-error/10 border border-error/20 rounded-lg p-3">
+                  <p className="text-xs text-error">{error.message.split('\n')[0]}</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Success */}
-          {isSuccess && newPairAddress && (
-            <div className="bg-success/10 border border-success/20 rounded-lg p-3">
-              <p className="text-xs text-success mb-1">Pool created!</p>
-              <p className="text-xs font-mono text-success break-all">{newPairAddress}</p>
-            </div>
-          )}
+          <AnimatePresence>
+            {isSuccess && newPairAddress && (
+              <motion.div {...anim.slide} style={{ overflow: 'hidden' }}>
+                <div className="bg-success/10 border border-success/20 rounded-lg p-3">
+                  <p className="text-xs text-success mb-1">Pool created!</p>
+                  <p className="text-xs font-mono text-success break-all">{newPairAddress}</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Actions */}
           <div className="flex gap-3 pt-1">
@@ -289,7 +353,7 @@ export function CreatePoolModal({ onClose, onCreated }: Props) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

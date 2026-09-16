@@ -64,9 +64,11 @@ export function useAddLiquidity() {
     if (params.strategy === 'spot') {
       // Spot (uniform): equal across all bins
       const symmetric = isSymmetricRange(params.activeBinId, params.startBin, params.endBin)
+      const binRange = params.endBin - params.activeBinId
 
-      if (symmetric) {
-        const binRange = params.endBin - params.activeBinId
+      // Router addLiquidityUniform requires binRange >= 1 (rejects 0).
+      // Fall through to mintDirect for a single-bin selection.
+      if (symmetric && binRange > 0) {
         console.log('Mode: Router addLiquidityUniform (symmetric)')
         console.log('BinRange:', binRange)
         console.groupEnd()
@@ -89,7 +91,8 @@ export function useAddLiquidity() {
         })
       } else {
         const dist = generateUniformDistribution(params.activeBinId, params.startBin, params.endBin)
-        console.log('Mode: Direct mint (asymmetric spot)')
+        const label = symmetric ? 'Direct mint (single bin)' : 'Direct mint (asymmetric spot)'
+        console.log('Mode:', label)
         logDistribution(dist)
         console.groupEnd()
         mintDirect(params, dist, deadline)

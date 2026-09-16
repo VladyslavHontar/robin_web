@@ -11,23 +11,15 @@ type ContractAddresses = {
 
 export const contracts: Record<number, ContractAddresses> = {
   46630: {
-    factory:          '0x3b6579a20C30Dc35aFab2737FD13D3bb5fFF0CFE',
-    router:           '0xC7c04dd814dF7bFd9Db5E5b39d4970f14139Ce45',
-    compliance:       '0xde18aC9BACF03133BBEB2807ED999BB4a365a151',
-    identityRegistry: '0x4Ca1BE049097df8CD44fDEfA04E02db0e1681095',
-    weth:             '0xD01e5E257ea5014E92BDD5b746eD63815Ee8ffD4',
-    oracleModule:     '0x24c79c663476Fc95243B62dC7a70B53360d6ec26',
+    factory:          '0x629b392a798a99558c55013931447a6Db35ef649',
+    router:           '0x4A620A2F544A260255C396550Ed65259635bC91C',
+    compliance:       '0x6E5DDd54c0a07bdD65f679c83d9FfB7dDB6d075F',
+    identityRegistry: '0x4c7D837eFdBEbE4Ff3876F6F5568b16fD8a03EE1',
+    weth:             '0xfeA10a4E52613F510f2A21D89794A271635b54ba',
+    oracleModule:     '0x1831D5Ad7F8792e110d4710afbFC51F613E1875b',
   },
 }
 
-export const knownTokens: Record<number, Record<Address, { symbol: string; name: string; decimals: number }>> = {
-  46630: {
-    '0x4e53aE702c4D80E745F02F0BF082EcB66d3a4688': { symbol: 'USDC',  name: 'USD Coin',            decimals: 6  },
-    '0x1162a28b717EbE9cb9d418798DA84Df28292F28B': { symbol: 'AAPL',  name: 'Apple Stock Token',    decimals: 18 },
-    '0xb79E274cdD2a3d20B80e270566fEb6531aa2D0f6': { symbol: 'TSLA',  name: 'Tesla Stock Token',    decimals: 18 },
-    '0xa9070d6cE43aC7c17625FF69b74b010016258D58': { symbol: 'MSFT',  name: 'Microsoft Stock Token',decimals: 18 },
-  },
-}
 
 export function getContracts(chainId: number): ContractAddresses {
   const c = contracts[chainId]

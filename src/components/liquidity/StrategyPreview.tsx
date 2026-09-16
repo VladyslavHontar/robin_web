@@ -3,7 +3,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import * as d3 from 'd3'
 import type { Distribution } from '@/lib/binMath'
-import { formatBinPrice, getPriceFromBinId } from '@/lib/binMath'
+import { formatBinPrice, getPriceFromBinId, binReservesToValue } from '@/lib/binMath'
 import { formatWei } from '@/lib/formatters'
 import type { BinData } from '@/hooks/useBinRange'
 
@@ -157,11 +157,10 @@ export function StrategyPreview({
       const adX = add ? Number(add.addX) : 0
       const adY = add ? Number(add.addY) : 0
 
-      // Normalize X amounts to Y-equivalent using ACTIVE bin price (constant)
-      const normExX = exX * activePrice
-      const normExY = exY
-      const normAdX = adX * activePrice
-      const normAdY = adY
+      // Normalize X amounts to Y-equivalent via shared helper.
+      // Uses a single active-bin price so equal liquidity shares render at equal height.
+      const { valueX: normExX, valueY: normExY } = binReservesToValue(BigInt(exX), BigInt(exY), activePrice)
+      const { valueX: normAdX, valueY: normAdY } = binReservesToValue(BigInt(adX), BigInt(adY), activePrice)
 
       const ov = overlayMap.get(id)
       const normOvX = ov ? normExX * ov.fractionX : 0
@@ -759,10 +758,8 @@ export function StrategyPreview({
           const dY = newDist.distributionY[i]
           const rawAdX = Number((curAmountX * dX) / PRECISION)
           const rawAdY = Number((curAmountY * dY) / PRECISION)
-          addMap.set(binId, {
-            normAddX: rawAdX * activePrice,
-            normAddY: rawAdY,
-          })
+          const { valueX: normAddX, valueY: normAddY } = binReservesToValue(BigInt(rawAdX), BigInt(rawAdY), activePrice)
+          addMap.set(binId, { normAddX, normAddY })
         }
 
         // existing-Y

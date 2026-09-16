@@ -1,26 +1,6 @@
 export const oracleModuleAbi = [
   {
     type: 'function',
-    name: 'getOracleBinId',
-    inputs: [{ name: 'pair', type: 'address' }],
-    outputs: [
-      { name: 'oracleBinId', type: 'uint24' },
-      { name: 'isValid', type: 'bool' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getDeviationFee',
-    inputs: [
-      { name: 'pair', type: 'address' },
-      { name: 'activeBinId', type: 'uint24' },
-    ],
-    outputs: [{ name: 'deviationFeeBps', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
     name: 'getOraclePrice',
     inputs: [{ name: 'pair', type: 'address' }],
     outputs: [

@@ -83,7 +83,7 @@ export function PoolInfoBlock({
 
         {/* Mini chart */}
         <div className="shrink-0 w-48 h-32 rounded-lg border border-border bg-surface-overlay overflow-hidden">
-          <BinMiniChart bins={bins} activeId={pairState.activeId} />
+          <BinMiniChart bins={bins} activeId={pairState.activeId} binStep={pairState.binStep} />
         </div>
 
         {/* Pool info */}
